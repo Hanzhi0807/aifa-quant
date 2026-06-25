@@ -12,7 +12,7 @@ import pandas as pd
 
 # Allow importing from project root
 project_root = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(project_root))
+sys.path.insert(0, str(project_root.parent))
 
 from aifa_quant.backtest.metrics import compute_metrics
 from aifa_quant.config.settings import Settings

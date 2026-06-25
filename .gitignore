@@ -2,7 +2,7 @@
 .env
 
 # Data storage
- data_store/
+data_store/
 *.duckdb
 *.duckdb.wal
 *.parquet

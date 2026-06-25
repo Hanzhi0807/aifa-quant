@@ -48,6 +48,7 @@ def list_tools():
 @app.command()
 def data_update(
     symbols: list[str] | None = typer.Option(None, "--symbol", "-s", help="Stock symbols to update"),
+    symbol_file: str | None = typer.Option(None, "--symbol-file", help="Path to file with one symbol per line"),
     start: str = typer.Option("20230101", "--start", help="Start date YYYYMMDD"),
     end: str = typer.Option("20241231", "--end", help="End date YYYYMMDD"),
     full: bool = typer.Option(False, "--full", help="Full refresh instead of incremental"),
@@ -64,6 +65,10 @@ def data_update(
         "全部A股": "A股上市股票列表",
     }
     query = universe_queries.get(universe, universe)
+
+    if symbol_file:
+        from pathlib import Path
+        symbols = [line.strip() for line in Path(symbol_file).read_text(encoding="utf-8").splitlines() if line.strip()]
 
     pipeline = DailyUpdatePipeline(Settings())
     if symbols:
