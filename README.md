@@ -104,6 +104,23 @@ python -m aifa_quant.cli.main backtest --start 20240101 --end 20241231 --top-k 5
 
 > ⚠️ 以上为回测结果，存在过拟合、幸存者偏差和参数敏感性风险，不代表实盘表现。数据源见 [Release v0.2.0-data](https://github.com/ivyzhi0807/aifa-quant/releases/tag/v0.2.0-data)。
 
+## 网站前端（可选）
+
+项目包含一个基于 React + Hono + tRPC + Drizzle + MySQL 的网站，位于 `web/`：
+
+```bash
+cd web
+npm install
+cp .env.example .env
+# 编辑 .env 填入 DATABASE_URL
+npm run db:push
+npm run dev
+```
+
+线上预览：https://h6lwpd6rnrixk.ok.kimi.link
+
+详细说明见 `web/web-README.md` 和 `web/DEPLOY.md`。
+
 ## 安全提示
 
 `.env` 文件包含你的 iFind MCP token，**绝对不要提交到 Git**（已在 `.gitignore` 中排除）。

@@ -53,3 +53,7 @@ models_cache/
 *.pkl
 *.joblib
 *.onnx
+
+# Kimi client deployment artifacts
+Kimi_Agent_方案评估与搭建/
+Kimi_Agent_方案评估与搭建.zip
