@@ -51,11 +51,28 @@ def data_update(
     start: str = typer.Option("20230101", "--start", help="Start date YYYYMMDD"),
     end: str = typer.Option("20241231", "--end", help="End date YYYYMMDD"),
     full: bool = typer.Option(False, "--full", help="Full refresh instead of incremental"),
+    universe: str = typer.Option(
+        "上证50", "--universe", help="Stock universe query (e.g., 上证50, 沪深300, 全部A股)"
+    ),
+    sample: int | None = typer.Option(None, "--sample", help="Limit universe to first N stocks for testing"),
 ):
     """Fetch daily quotes from iFind MCP and persist to DuckDB."""
+    # Map friendly universe names to iFind queries
+    universe_queries = {
+        "上证50": "上证50成分股",
+        "沪深300": "沪深300成分股",
+        "全部A股": "A股上市股票列表",
+    }
+    query = universe_queries.get(universe, universe)
+
     pipeline = DailyUpdatePipeline(Settings())
+    if symbols:
+        target_symbols = symbols
+    else:
+        target_symbols = pipeline.fetch_stock_universe(query=query, sample_size=sample)
+        print(f"[cyan]获取到 {len(target_symbols)} 只股票[/cyan]")
     total_rows = pipeline.update_daily_quotes(
-        symbols=symbols or None,
+        symbols=target_symbols,
         start_date=start,
         end_date=end,
         incremental=not full,
