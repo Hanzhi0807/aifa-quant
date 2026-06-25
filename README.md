@@ -1,6 +1,13 @@
 # AifaQuant - A股 AI 量化研究框架
 
+[![CI](https://github.com/ivyzhi0807/aifa-quant/actions/workflows/ci.yml/badge.svg)](https://github.com/ivyzhi0807/aifa-quant/actions)
+![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+[![Release](https://img.shields.io/github/v/release/ivyzhi0807/aifa-quant)](https://github.com/ivyzhi0807/aifa-quant/releases)
+
 个人本地运行的 A股 AI 量化研究与回测系统，以同花顺 iFind MCP 为主要数据源，支持从数据获取、因子构建、模型训练、策略回测到模拟交易的完整闭环。
+
+> **English**: AifaQuant is a local-first A-share quantitative research and backtesting framework in Python. It uses iFind MCP as the primary data source, DuckDB for storage, LightGBM for stock selection, and a custom event-driven backtest engine with CSI 300 benchmark comparison.
 
 ## 快速开始
 
@@ -88,6 +95,10 @@ python -m aifa_quant.cli.main backtest --start 20240101 --end 20241231 --top-k 5
 | 沪深 300 基准收益 | -7.29% |
 | 超额收益 | 200.11% |
 | 超额夏普 | 1.531 |
+
+### 净值曲线
+
+![滚动回测净值曲线](docs/images/equity_curve_2023_2024_rolling.png)
 
 > ⚠️ 以上为回测结果，存在过拟合、幸存者偏差和参数敏感性风险，不代表实盘表现。数据源见 [Release v0.2.0-data](https://github.com/ivyzhi0807/aifa-quant/releases/tag/v0.2.0-data)。
 
