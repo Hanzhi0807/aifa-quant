@@ -1,0 +1,86 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aifa-quant"
+version = "0.1.0"
+description = "A股 AI 量化研究框架"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "ivyzhi0807", email = "jiangjas@gmail.com"},
+]
+keywords = ["quant", "a-share", "machine-learning", "trading"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "pandas>=2.0.0",
+    "numpy>=1.24.0",
+    "python-dotenv>=1.0.0",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+    "duckdb>=0.10.0",
+    "pyarrow>=15.0.0",
+    "requests>=2.31.0",
+    "httpx>=0.27.0",
+    "pandas-ta>=0.3.14b",
+    "lightgbm>=4.3.0",
+    "xgboost>=2.0.0",
+    "scikit-learn>=1.4.0",
+    "backtrader>=1.9.78.123",
+    "typer>=0.12.0",
+    "rich>=13.0.0",
+    "matplotlib>=3.8.0",
+    "seaborn>=0.13.0",
+    "plotly>=5.20.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "ruff>=0.4.0",
+    "jupyter>=1.0.0",
+    "ipython>=8.22.0",
+]
+
+[project.scripts]
+aifa = "aifa_quant.cli.main:app"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["aifa_quant*"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # Pyflakes
+    "W",   # pycodestyle warnings
+    "I",   # isort
+    "N",   # pep8-naming
+    "UP",  # pyupgrade
+]
+ignore = ["E501"]
+
+[tool.ruff.lint.pep8-naming]
+ignore-names = ["X", "y"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
