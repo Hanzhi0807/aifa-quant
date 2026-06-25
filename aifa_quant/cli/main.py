@@ -56,6 +56,7 @@ def data_update(
         "上证50", "--universe", help="Stock universe query (e.g., 上证50, 沪深300, 全部A股)"
     ),
     sample: int | None = typer.Option(None, "--sample", help="Limit universe to first N stocks for testing"),
+    workers: int = typer.Option(3, "--workers", help="Concurrent download workers"),
 ):
     """Fetch daily quotes from iFind MCP and persist to DuckDB."""
     # Map friendly universe names to iFind queries
@@ -70,7 +71,7 @@ def data_update(
         from pathlib import Path
         symbols = [line.strip() for line in Path(symbol_file).read_text(encoding="utf-8").splitlines() if line.strip()]
 
-    pipeline = DailyUpdatePipeline(Settings())
+    pipeline = DailyUpdatePipeline(Settings(), max_workers=workers)
     if symbols:
         target_symbols = symbols
     else:

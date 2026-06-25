@@ -23,28 +23,26 @@ class RateLimiter:
 
     def acquire(self) -> None:
         """Block until a request slot is available."""
-        with self._lock:
-            now = time.monotonic()
-            # Drop timestamps outside the window
-            cutoff = now - self.window_seconds
-            while self._timestamps and self._timestamps[0] <= cutoff:
-                self._timestamps.pop(0)
+        while True:
+            with self._lock:
+                now = time.monotonic()
+                cutoff = now - self.window_seconds
+                while self._timestamps and self._timestamps[0] <= cutoff:
+                    self._timestamps.pop(0)
 
-            if len(self._timestamps) >= self.max_requests:
+                if len(self._timestamps) < self.max_requests:
+                    self._timestamps.append(time.monotonic())
+                    return
+
                 sleep_time = self._timestamps[0] + self.window_seconds - now
-                if sleep_time > 0:
-                    time.sleep(sleep_time)
-                    now = time.monotonic()
-                    while self._timestamps and self._timestamps[0] <= now - self.window_seconds:
-                        self._timestamps.pop(0)
-
-            self._timestamps.append(time.monotonic())
+            if sleep_time > 0:
+                time.sleep(sleep_time)
 
 
 class DailyUpdatePipeline:
     """Incremental daily quote update pipeline."""
 
-    def __init__(self, settings: Settings | None = None, max_workers: int = 5):
+    def __init__(self, settings: Settings | None = None, max_workers: int = 3):
         self.settings = settings or Settings()
         self.adapter = StockMCPAdapter(self.settings)
         self.store = DuckDBStore(self.settings)
@@ -127,26 +125,22 @@ class DailyUpdatePipeline:
             except Exception as e:
                 return symbol, None, e
 
-        print(f"[INFO] 开始并发下载 {len(tasks)} 只股票，最大并发数 {self.max_workers}，限速 5 req/s")
+        print(f"[INFO] 开始并发下载 {len(tasks)} 只股票，最大并发数 {self.max_workers}，限速 5 req/s", flush=True)
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             futures = {executor.submit(fetch_one, sym, s): sym for sym, s in tasks}
             for future in as_completed(futures):
                 symbol, df, error = future.result()
                 if error is not None:
-                    print(f"[ERROR] {symbol}: {error}")
+                    print(f"[ERROR] {symbol}: {error}", flush=True)
                     continue
                 if df is None or df.empty:
-                    print(f"[WARN] {symbol}: 无数据")
+                    print(f"[WARN] {symbol}: 无数据", flush=True)
                     continue
-                fetched.append((symbol, df, None))
-
-        # Save sequentially to avoid DuckDB write contention
-        for symbol, df, _ in fetched:
-            try:
-                rows = self.store.save_daily_quotes(df)
-                total_rows += rows
-                print(f"[OK] {symbol}: 新增/更新 {rows} 条")
-            except Exception as e:
-                print(f"[ERROR] {symbol} 保存失败: {e}")
+                try:
+                    rows = self.store.save_daily_quotes(df)
+                    total_rows += rows
+                    print(f"[OK] {symbol}: 新增/更新 {rows} 条", flush=True)
+                except Exception as e:
+                    print(f"[ERROR] {symbol} 保存失败: {e}", flush=True)
 
         return total_rows
