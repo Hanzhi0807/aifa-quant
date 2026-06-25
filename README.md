@@ -61,22 +61,19 @@ python -m aifa_quant.cli.main data-update --start 20230101 --end 20241231
 python -m aifa_quant.cli.main db-info
 python -m aifa_quant.cli.main train --start 20230101 --end 20231231
 python -m aifa_quant.cli.main backtest --start 20240101 --end 20241231 --top-k 3
+
+# 滚动训练 + 沪深 300 基准对比
+python -m aifa_quant.cli.main backtest --start 20240101 --end 20241231 --top-k 5 --freq 5 --rolling --benchmark 000300.SH
 ```
 
-## 当前 baseline 回测结果（示例）
+## 当前能力
 
-使用上证 50 成分股中 10 只、2023 年训练、2024 年测试：
+- 股票池：上证 50 完整 50 只成分股（持续补充历史日线）。
+- 因子：技术面 + 基本面（PE / PB / ROE） + 宏观（CPI / PMI / M2）。
+- 模型：LightGBM 二分类选股，支持滚动窗口 out-of-sample 预测。
+- 回测：自定义 A股规则引擎，支持沪深 300 基准对比与超额收益计算。
 
-| 指标 | 数值 |
-|------|------|
-| 总收益率 | 26.55% |
-| 年化收益率 | 227.61% |
-| 年化波动率 | 26.75% |
-| 夏普比率 | 8.510 |
-| 最大回撤 | -3.25% |
-| 日胜率 | 63.27% |
-
-> ⚠️ 以上为极小规模样本的演示结果，存在过拟合和幸存者偏差风险，不代表实盘表现。
+> ⚠️ 当前为框架验证阶段，回测结果存在过拟合风险，不代表实盘表现。
 
 ## 安全提示
 

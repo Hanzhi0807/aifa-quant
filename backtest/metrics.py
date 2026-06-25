@@ -4,10 +4,15 @@ import numpy as np
 import pandas as pd
 
 
-def compute_metrics(equity_curve: pd.DataFrame, risk_free_rate: float = 0.0) -> dict[str, float]:
+def compute_metrics(
+    equity_curve: pd.DataFrame,
+    benchmark_curve: pd.DataFrame | None = None,
+    risk_free_rate: float = 0.0,
+) -> dict[str, float]:
     """Compute standard performance metrics from an equity curve.
 
     equity_curve must have a 'total_value' column and a 'trade_date' index or column.
+    benchmark_curve, if provided, must have 'trade_date' and 'close' columns.
     """
     if equity_curve.empty:
         return {}
@@ -31,7 +36,7 @@ def compute_metrics(equity_curve: pd.DataFrame, risk_free_rate: float = 0.0) -> 
     # Win rate (positive daily returns)
     win_rate = (returns > 0).mean()
 
-    return {
+    metrics = {
         "total_return": total_return,
         "annual_return": annual_return,
         "annual_volatility": volatility,
@@ -42,3 +47,22 @@ def compute_metrics(equity_curve: pd.DataFrame, risk_free_rate: float = 0.0) -> 
         "end_value": df["total_value"].iloc[-1],
         "trading_days": n_days,
     }
+
+    if benchmark_curve is not None and not benchmark_curve.empty:
+        bench = benchmark_curve.copy().sort_values("trade_date").reset_index(drop=True)
+        bench["daily_return"] = bench["close"].pct_change()
+        bench = bench[["trade_date", "daily_return"]].rename(columns={"daily_return": "bench_return"})
+        merged = df.merge(bench, on="trade_date", how="inner")
+        if not merged.empty:
+            merged["excess_return"] = merged["daily_return"] - merged["bench_return"]
+            bench_total = (1 + merged["bench_return"].dropna()).prod() - 1
+            metrics["benchmark_total_return"] = bench_total
+            metrics["excess_return"] = total_return - bench_total
+            metrics["excess_sharpe"] = (
+                merged["excess_return"].mean() / merged["excess_return"].std() * np.sqrt(252)
+                if merged["excess_return"].std() != 0
+                else 0.0
+            )
+            metrics["bench_win_rate"] = (merged["excess_return"] > 0).mean()
+
+    return metrics

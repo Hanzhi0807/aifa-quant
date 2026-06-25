@@ -7,12 +7,13 @@ from rich.table import Table
 
 from ..backtest import BacktestEngine, compute_metrics
 from ..config.settings import Settings
-from ..data.adapters import StockMCPAdapter
+from ..data.adapters import IndexMCPAdapter, StockMCPAdapter
 from ..data.pipeline import DailyUpdatePipeline
 from ..data.storage import DuckDBStore
 from ..features import FeatureBuilder
 from ..models import LGBRankerModel
 from ..models.registry import ModelRegistry
+from ..models.rolling_trainer import RollingTrainer
 from ..strategy import TopKDropoutStrategy
 
 app = typer.Typer(help="AifaQuant - A股 AI 量化研究框架")
@@ -70,26 +71,40 @@ def backtest(
     top_k: int = typer.Option(3, "--top-k", help="Number of stocks to hold"),
     freq: int = typer.Option(5, "--freq", help="Rebalance frequency in days"),
     initial_cash: float = typer.Option(1_000_000.0, "--cash", help="Initial capital"),
+    rolling: bool = typer.Option(False, "--rolling", help="Use rolling window training to avoid look-ahead bias"),
+    benchmark: str = typer.Option("000300.SH", "--benchmark", help="Benchmark index symbol"),
 ):
     """Run backtest using trained model and TopK-Dropout strategy."""
     settings = Settings()
-
-    # Load model
-    registry = ModelRegistry(settings)
-    model_path = registry.path(model_name)
-    if not model_path.exists():
-        print(f"[red]模型不存在: {model_path}，请先运行 train 命令[/red]")
-        raise typer.Exit(code=1)
-    model = LGBRankerModel()
-    model.load(str(model_path))
-    print(f"[green]已加载模型: {model_path}[/green]")
+    builder = FeatureBuilder(settings)
 
     # Load features
-    builder = FeatureBuilder(settings)
+    print("[yellow]正在构建特征...[/yellow]")
     features = builder.build_features(start_date=start, end_date=end)
     if features.empty:
         print("[red]没有可用特征数据[/red]")
         raise typer.Exit(code=1)
+
+    feature_cols = builder.feature_columns(features)
+
+    if rolling:
+        print("[yellow]正在滚动训练生成 out-of-sample 预测...[/yellow]")
+        trainer = RollingTrainer(train_window_days=252 * 2, min_train_samples=500, settings=settings)
+        preds = trainer.predict_rolling(features)
+        features = features.merge(preds, on=["symbol", "trade_date"], how="inner")
+    else:
+        # Load pre-trained model
+        registry = ModelRegistry(settings)
+        model_path = registry.path(model_name)
+        if not model_path.exists():
+            print(f"[red]模型不存在: {model_path}，请先运行 train 命令或使用 --rolling[/red]")
+            raise typer.Exit(code=1)
+        model = LGBRankerModel()
+        model.load(str(model_path))
+        print(f"[green]已加载模型: {model_path}[/green]")
+        pred_df = features.dropna(subset=feature_cols).copy()
+        pred_df["pred_score"] = model.predict(pred_df[feature_cols])
+        features = pred_df
 
     # Load raw quotes for execution
     store = DuckDBStore(settings)
@@ -99,13 +114,23 @@ def backtest(
     # Run backtest
     strategy = TopKDropoutStrategy(top_k=top_k, rebalance_freq=freq)
     engine = BacktestEngine(initial_cash=initial_cash, rebalance_freq=freq)
-    equity = engine.run(quotes, features, model, strategy, start_date=start, end_date=end)
+    equity = engine.run(quotes, features, LGBRankerModel(), strategy, start_date=start, end_date=end)
 
     if equity.empty:
         print("[red]回测未产生结果[/red]")
         raise typer.Exit(code=1)
 
-    metrics = compute_metrics(equity)
+    # Fetch benchmark
+    bench_df = None
+    try:
+        index_adapter = IndexMCPAdapter(settings)
+        bench_df = index_adapter.get_daily_data(benchmark, start_date=start, end_date=end)
+        if bench_df.empty or "close" not in bench_df.columns:
+            bench_df = None
+    except Exception as e:
+        print(f"[yellow]获取基准 {benchmark} 失败: {e}[/yellow]")
+
+    metrics = compute_metrics(equity, benchmark_curve=bench_df)
     print("\n[bold]回测绩效[/bold]")
     table = Table(title="Performance Metrics")
     table.add_column("指标", style="cyan")
@@ -116,6 +141,10 @@ def backtest(
     table.add_row("夏普比率", f"{metrics['sharpe_ratio']:.3f}")
     table.add_row("最大回撤", f"{metrics['max_drawdown']:.2%}")
     table.add_row("日胜率", f"{metrics['win_rate']:.2%}")
+    if "benchmark_total_return" in metrics:
+        table.add_row("基准总收益", f"{metrics['benchmark_total_return']:.2%}")
+        table.add_row("超额收益", f"{metrics['excess_return']:.2%}")
+        table.add_row("超额夏普", f"{metrics['excess_sharpe']:.3f}")
     console.print(table)
 
     # Save equity curve and plot
@@ -129,12 +158,17 @@ def backtest(
 
         plt.figure(figsize=(12, 6))
         plt.plot(equity["trade_date"], equity["total_value"] / equity["total_value"].iloc[0], label="Strategy")
+        if bench_df is not None and not bench_df.empty:
+            bench_norm = bench_df.sort_values("trade_date").reset_index(drop=True)
+            bench_norm["normalized"] = bench_norm["close"] / bench_norm["close"].iloc[0]
+            plt.plot(bench_norm["trade_date"], bench_norm["normalized"], label=f"Benchmark {benchmark}")
         plt.title("Equity Curve")
         plt.xlabel("Date")
         plt.ylabel("Normalized Value")
         plt.legend()
         plt.grid(True)
-        plot_path = report_dir / f"equity_{start}_{end}.png"
+        suffix = "_rolling" if rolling else ""
+        plot_path = report_dir / f"equity_{start}_{end}{suffix}.png"
         plt.savefig(plot_path)
         plt.close()
         print(f"[green]权益曲线图已保存: {plot_path}[/green]")

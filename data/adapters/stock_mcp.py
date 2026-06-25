@@ -8,6 +8,20 @@ from ...config.settings import Settings
 from .base import BaseMCPAdapter
 
 
+def _split_date_range(start_date: str, end_date: str, months: int = 4) -> list[tuple[str, str]]:
+    """Split a date range into chunks of approximately N calendar months."""
+    start = pd.to_datetime(start_date)
+    end = pd.to_datetime(end_date)
+    chunks = []
+    current = start
+    while current <= end:
+        chunk_end = (current + pd.DateOffset(months=months)) - pd.Timedelta(days=1)
+        chunk_end = min(chunk_end, end)
+        chunks.append((current.strftime("%Y%m%d"), chunk_end.strftime("%Y%m%d")))
+        current = chunk_end + pd.Timedelta(days=1)
+    return chunks
+
+
 class StockMCPAdapter(BaseMCPAdapter):
     """Adapter for iFind stock data MCP server."""
 
@@ -73,8 +87,31 @@ class StockMCPAdapter(BaseMCPAdapter):
         if not tool_name:
             raise RuntimeError("No daily/kline tool found on stock MCP server")
 
-        # iFind get_stock_performance expects a natural-language query.
-        # Explicitly request OHLCV fields; otherwise volume/amount may be omitted.
+        if start_date is None or end_date is None:
+            # Single query when no date range specified
+            return self._fetch_daily_chunk(tool_name, symbol, start_date, end_date, **kwargs)
+
+        chunks = _split_date_range(start_date, end_date, months=4)
+        frames = []
+        for s, e in chunks:
+            df = self._fetch_daily_chunk(tool_name, symbol, s, e, **kwargs)
+            if not df.empty:
+                frames.append(df)
+        if not frames:
+            return pd.DataFrame()
+        combined = pd.concat(frames, ignore_index=True)
+        combined = combined.drop_duplicates(subset=["symbol", "trade_date"], keep="first")
+        return combined.sort_values(["symbol", "trade_date"]).reset_index(drop=True)
+
+    def _fetch_daily_chunk(
+        self,
+        tool_name: str,
+        symbol: str,
+        start_date: str | None,
+        end_date: str | None,
+        **kwargs,
+    ) -> pd.DataFrame:
+        """Fetch one chunk of daily data."""
         start_str = start_date or ""
         end_str = end_date or ""
         query = f"{symbol} {start_str} 到 {end_str} 日线行情数据，包含开盘价、收盘价、最高价、最低价、成交量、成交额"
@@ -84,6 +121,66 @@ class StockMCPAdapter(BaseMCPAdapter):
         content = self.call_tool(tool_name, {"query": query})
         df = self._content_to_dataframe(content)
         return self._clean_daily_data(df)
+
+    def get_financial_data(
+        self,
+        symbol: str,
+        start_date: str | None = None,
+        end_date: str | None = None,
+    ) -> pd.DataFrame:
+        """Fetch quarterly financial/valuation ratios for a single symbol."""
+        tools = self.discover_tools()
+        tool_name = tools.get("finance")
+        if not tool_name:
+            raise RuntimeError("No financial tool found on stock MCP server")
+
+        start_str = start_date or ""
+        end_str = end_date or ""
+        query = f"{symbol} {start_str} 到 {end_str} 财务数据，包含市盈率、市净率、净资产收益率ROE"
+        content = self.call_tool(tool_name, {"query": query})
+        df = self._content_to_dataframe(content)
+        return self._clean_financial_data(df)
+
+    @staticmethod
+    def _clean_financial_data(df: pd.DataFrame) -> pd.DataFrame:
+        """Normalize iFind financial DataFrame to standard schema."""
+        if df.empty:
+            return df
+
+        column_map = {
+            "证券代码": "symbol",
+            "证券简称": "name",
+            "日期": "report_date",
+            "市盈率（PE，LYR）": "pe_lyr",
+            "市净率(PB,最新)": "pb",
+            "市净率（PB，MRQ）": "pb_mrq",
+            "净资产收益率ROE(扣除／加权)（单位：%）": "roe_deducted",
+            "净资产收益率ROE(TTM)（单位：%）": "roe_ttm",
+            "净资产收益率ROE(加权,公布值)（单位：%）": "roe_weighted",
+            "净资产收益率ROE(摊薄,公布值)（单位：%）": "roe_diluted",
+        }
+        df = df.rename(columns={k: v for k, v in column_map.items() if k in df.columns})
+
+        keep = [
+            "symbol",
+            "name",
+            "report_date",
+            "pe_lyr",
+            "pb",
+            "pb_mrq",
+            "roe_deducted",
+            "roe_ttm",
+            "roe_weighted",
+            "roe_diluted",
+        ]
+        df = df[[c for c in keep if c in df.columns]].copy()
+
+        df["report_date"] = pd.to_datetime(df["report_date"], errors="coerce")
+        for col in ["pe_lyr", "pb", "pb_mrq", "roe_deducted", "roe_ttm", "roe_weighted", "roe_diluted"]:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+
+        return df.dropna(subset=["symbol", "report_date"])
 
     def get_daily_data_many(
         self,

@@ -6,17 +6,21 @@
 
 AifaQuant 是一个基于 **Python + DuckDB + LightGBM** 的 A股 AI 量化研究与回测框架，以 **同花顺 iFind MCP** 为主要数据源。
 
-## 当前状态（v0.1.0）
+## 当前状态（v0.2.0）
 
 - ✅ 项目骨架搭建完成
-- ✅ iFind MCP 数据接入（股票日线）
+- ✅ iFind MCP 数据接入（股票、宏观、指数）
 - ✅ DuckDB 本地存储 + 增量更新
 - ✅ 技术面因子工程
+- ✅ 基本面因子工程（PE / PB / ROE）
+- ✅ 宏观因子工程（CPI / PMI / M2）
 - ✅ LightGBM 选股模型
+- ✅ 滚动窗口训练 / out-of-sample 预测
 - ✅ TopK-Dropout 策略 + A股回测引擎
+- ✅ 基准对比（沪深 300 超额收益）
 - ✅ CLI 入口
 - ✅ GitHub Actions CI（lint + test）
-- ⚠️ 当前为概念验证阶段，样本量小，存在过拟合风险
+- ⚠️ 当前为研究与框架验证阶段，结果不代表实盘表现
 
 ## 目录速查
 
@@ -69,33 +73,26 @@ python -m aifa_quant.cli.main backtest --start 20240101 --end 20241231 --top-k 3
 
 | 问题 | 说明 | 建议修复方向 |
 |------|------|-------------|
-| 数据量小 | 当前仅 10 只股票、约 1000 条日线 | 扩展至 50-300 只，或拉取更长历史 |
+| 数据量小 | 当前仅 13 只股票已入库，目标完整上证 50 | 继续跑 `data-update` 增量拉取 |
 | iFind 返回不稳定 | 不同股票/查询返回的列名和字段不一致 | 已在 `stock_mcp.py` 做合兼容处理，但仍需持续观察 |
-| 日线长度限制 | 单次查询约返回 100 条日线 | 需要分段拉取或优化查询 |
+| 日线长度限制 | 单次查询约返回 100 条日线 | 已按 4 个月分段拉取，50 只股票约 20 分钟 |
 | 涨跌停判断简化 | 使用前一日成本价代替真实前收盘价 | 维护完整历史前收盘价字段 |
-| 未做交叉验证 | 按年份划分训练/测试 | 实现滚动训练/验证 |
-| 可能存在过拟合 | 小样本 + 多因子 | 扩展数据、正则化、特征筛选 |
+| 可能存在过拟合 | 小样本 + 多因子 | 扩展数据、滚动训练、正则化、特征筛选 |
 
 ## 推荐下一步（优先级排序）
 
-1. **扩大股票池**
-   - 修改 `data/pipeline/daily_update.py` 中 `fetch_stock_universe` 的查询，获取更多成分股。
+1. **继续扩大股票池**
+   - 当前已接入上证 50 全成分股查询，继续跑 `data-update` 完成 50 只日线入库。
    - 注意 iFind MCP 调用频率和配额。
 
-2. **加入基本面/宏观/情绪因子**
-   - `data/adapters/` 下的 `edb_mcp.py`、`news_mcp.py`、`index_mcp.py` 还是占位实现。
-   - 可分别接入宏观数据、新闻情绪、指数行情。
+2. **加入情绪因子**
+   - `data/adapters/news_mcp.py` 仍是占位实现，可接入新闻情绪或舆情因子。
 
-3. **滚动训练与验证**
-   - 在 `models/lgb_ranker.py` 或训练脚本中实现按月/季度滚动训练。
-   - 避免使用未来数据。
+3. **参数优化**
+   - 对 `top_k`、`rebalance_freq`、模型超参、滚动窗口长度做网格搜索或贝叶斯优化。
 
-4. **基准对比与超额收益**
-   - 在 `backtest/metrics.py` 中加入沪深 300 / 中证 500 等基准曲线。
-   - 计算超额收益、信息比率。
-
-5. **参数优化**
-   - 对 `top_k`、`rebalance_freq`、模型超参做网格搜索或贝叶斯优化。
+5. **特征筛选与可解释性**
+   - 加入特征重要性、SHAP 分析、多重共线性检查。
 
 6. **实盘/模拟盘**
    - 在 `execution/` 下实现 QMT 或 easytrader 接口。
@@ -105,7 +102,7 @@ python -m aifa_quant.cli.main backtest --start 20240101 --end 20241231 --top-k 3
 
 - 使用 `ruff` 做 lint 和 format：`ruff check aifa_quant tests` / `ruff format aifa_quant tests`
 - 使用 `pytest` 跑测试：`pytest tests/ -v`
-- Python 版本支持：3.10 / 3.11 / 3.12
+- Python 版本支持：3.10 / 3.11 / 3.12 / 3.13
 
 ## 敏感信息
 
@@ -116,4 +113,4 @@ python -m aifa_quant.cli.main backtest --start 20240101 --end 20241231 --top-k 3
 
 - 创建者：ivyzhi0807 / jiangjas@gmail.com
 - 仓库：https://github.com/ivyzhi0807/aifa-quant
-- 当前版本：v0.1.0
+- 当前版本：v0.2.0

@@ -83,9 +83,10 @@ class BacktestEngine:
         if len(dates) == 0:
             return pd.DataFrame()
 
-        # Add prediction scores to features
-        feat_cols = [c for c in features.columns if c in model.feature_names]
-        features["pred_score"] = model.predict(features[feat_cols])
+        # Add prediction scores if not already present (e.g. from rolling trainer)
+        if "pred_score" not in features.columns:
+            feat_cols = [c for c in features.columns if c in model.feature_names]
+            features["pred_score"] = model.predict(features[feat_cols])
 
         last_rebalance = None
         target_symbols: set = set()
