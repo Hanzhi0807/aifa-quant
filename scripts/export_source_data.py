@@ -8,10 +8,9 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-import duckdb
-import pandas as pd
+import duckdb  # noqa: E402
 
-from aifa_quant.config.settings import Settings
+from aifa_quant.config.settings import Settings  # noqa: E402
 
 
 def export_daily_quotes(output_path: str | Path) -> None:

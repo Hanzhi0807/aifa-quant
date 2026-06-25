@@ -73,6 +73,10 @@ def backtest(
     initial_cash: float = typer.Option(1_000_000.0, "--cash", help="Initial capital"),
     rolling: bool = typer.Option(False, "--rolling", help="Use rolling window training to avoid look-ahead bias"),
     benchmark: str = typer.Option("000300.SH", "--benchmark", help="Benchmark index symbol"),
+    include_fundamental: bool = typer.Option(
+        True, "--fundamental/--no-fundamental", help="Include fundamental factors (PE/PB/ROE)"
+    ),
+    include_macro: bool = typer.Option(True, "--macro/--no-macro", help="Include macro factors (CPI/PMI/M2)"),
 ):
     """Run backtest using trained model and TopK-Dropout strategy."""
     settings = Settings()
@@ -80,7 +84,12 @@ def backtest(
 
     # Load features
     print("[yellow]正在构建特征...[/yellow]")
-    features = builder.build_features(start_date=start, end_date=end)
+    features = builder.build_features(
+        start_date=start,
+        end_date=end,
+        include_fundamental=include_fundamental,
+        include_macro=include_macro,
+    )
     if features.empty:
         print("[red]没有可用特征数据[/red]")
         raise typer.Exit(code=1)
@@ -90,7 +99,10 @@ def backtest(
     if rolling:
         print("[yellow]正在滚动训练生成 out-of-sample 预测...[/yellow]")
         trainer = RollingTrainer(train_window_days=252 * 2, min_train_samples=500, settings=settings)
-        preds = trainer.predict_rolling(features)
+        # Align retraining dates with rebalance frequency to avoid training every day.
+        all_dates = sorted(features["trade_date"].unique())
+        rebalance_dates = all_dates[::freq]
+        preds = trainer.predict_rolling(features, rebalance_dates=rebalance_dates)
         features = features.merge(preds, on=["symbol", "trade_date"], how="inner")
     else:
         # Load pre-trained model
