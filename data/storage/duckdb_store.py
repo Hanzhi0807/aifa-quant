@@ -1,5 +1,6 @@
 """Local DuckDB storage for raw market data and features."""
 
+import threading
 from pathlib import Path
 
 import duckdb
@@ -15,20 +16,21 @@ class DuckDBStore:
         self.settings = settings or Settings()
         self.db_path = Path(self.settings.duckdb_path_abs)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn: duckdb.DuckDBPyConnection | None = None
-        self._closed = True
+        # One connection per thread to avoid DuckDB concurrency errors.
+        self._local = threading.local()
 
     @property
     def conn(self) -> duckdb.DuckDBPyConnection:
-        if self._conn is None or self._closed:
-            self._conn = duckdb.connect(str(self.db_path))
-            self._closed = False
-            self._init_tables()
-        return self._conn
+        conn = getattr(self._local, "conn", None)
+        if conn is None:
+            conn = duckdb.connect(str(self.db_path))
+            self._local.conn = conn
+            self._init_tables(conn)
+        return conn
 
-    def _init_tables(self) -> None:
+    def _init_tables(self, conn: duckdb.DuckDBPyConnection) -> None:
         """Create core tables if they do not exist."""
-        self._conn.execute("""
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS daily_quotes (
                 symbol VARCHAR NOT NULL,
                 trade_date DATE NOT NULL,
@@ -44,7 +46,7 @@ class DuckDBStore:
             );
         """)
 
-        self._conn.execute("""
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS stock_universe (
                 symbol VARCHAR PRIMARY KEY,
                 name VARCHAR,
@@ -120,10 +122,10 @@ class DuckDBStore:
         return None
 
     def close(self) -> None:
-        if self._conn and not self._closed:
-            self._conn.close()
-            self._closed = True
-            self._conn = None
+        conn = getattr(self._local, "conn", None)
+        if conn is not None:
+            conn.close()
+            self._local.conn = None
 
     def __enter__(self):
         return self
