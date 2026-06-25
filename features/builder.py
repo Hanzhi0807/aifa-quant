@@ -65,7 +65,9 @@ class FeatureBuilder:
             include_fundamental: Whether to merge PE/PB/ROE ratios from iFind.
             include_macro: Whether to merge macroeconomic indicators.
         """
+        print("[yellow]正在从 DuckDB 加载原始日线数据...[/yellow]")
         raw = self.load_raw_data(symbols, start_date, end_date)
+        print(f"[green]已加载 {len(raw)} 条日线数据，{raw['symbol'].nunique()} 只股票[/green]")
         if raw.empty:
             return raw
 
@@ -76,21 +78,25 @@ class FeatureBuilder:
 
         # Optionally merge fundamental data
         if include_fundamental:
+            print("[yellow]正在获取基本面数据（PE/PB/ROE）...[/yellow]")
             adapter = StockMCPAdapter(self.settings)
             fin_frames = []
-            for symbol in raw["symbol"].unique():
+            symbols = raw["symbol"].unique()
+            for i, symbol in enumerate(symbols, 1):
+                print(f"  [{i}/{len(symbols)}] {symbol}")
                 try:
                     fin = adapter.get_financial_data(symbol, start_date, end_date)
                     if not fin.empty:
                         fin_frames.append(fin)
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"  [WARN] {symbol} 基本面数据获取失败: {e}")
             if fin_frames:
                 financial = pd.concat(fin_frames, ignore_index=True)
                 raw = merge_fundamental_to_daily(raw, financial)
 
         # Optionally merge macro data
         if include_macro:
+            print("[yellow]正在获取宏观数据（CPI/PMI/M2）...[/yellow]")
             edb = EDBMCPAdapter(self.settings)
             macro_indicators = {
                 "cpi_yoy": "中国CPI同比",
@@ -98,13 +104,15 @@ class FeatureBuilder:
                 "m2_yoy": "中国M2同比",
             }
             for col_name, query in macro_indicators.items():
+                print(f"  获取 {col_name}: {query}")
                 try:
                     macro = edb.get_macro_data(query, start_date, end_date)
                     if not macro.empty:
                         raw = merge_macro_to_daily(raw, macro, col_name)
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"  [WARN] {col_name} 宏观数据获取失败: {e}")
 
+        print("[yellow]正在构建技术因子...[/yellow]")
         frames = []
         for symbol, group in raw.groupby("symbol"):
             feat = self.build_per_symbol(group)
@@ -112,6 +120,7 @@ class FeatureBuilder:
             frames.append(feat)
 
         df = pd.concat(frames, ignore_index=True)
+        print(f"[green]特征矩阵形状: {df.shape}[/green]")
 
         # Primary label: future N-day return
         df["label_return"] = df.groupby("symbol")["close"].shift(-label_horizon) / df["close"] - 1
