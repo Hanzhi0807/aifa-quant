@@ -8,6 +8,7 @@ on:
   pull_request:
     branches: [main, master]
     paths-ignore: ["web/**", "docs/**", "*.md"]
+  workflow_dispatch:
 
 jobs:
   python:
