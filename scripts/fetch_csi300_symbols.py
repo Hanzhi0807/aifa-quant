@@ -13,7 +13,7 @@ import requests
 from bs4 import BeautifulSoup
 
 project_root = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(project_root.parent))
+sys.path.insert(0, str(project_root))
 
 from aifa_quant.config.settings import Settings
 
@@ -31,7 +31,7 @@ def fetch_csi300_symbols() -> list[str]:
     """Fetch CSI 300 components from Sina Finance paginated table."""
     base_url = "https://vip.stock.finance.sina.com.cn/corp/view/vII_NewestComponent.php"
     codes: list[str] = []
-    for page in range(1, 20):
+    for page in range(1, 30):
         resp = requests.get(base_url, params={"page": page, "indexid": "000300"}, timeout=30)
         resp.encoding = "gb2312"
         soup = BeautifulSoup(resp.text, "html.parser")
@@ -43,9 +43,7 @@ def fetch_csi300_symbols() -> list[str]:
         if not page_codes:
             break
         codes.extend(page_codes)
-        if len(codes) >= 300:
-            break
-    return [code_to_symbol(c) for c in codes]
+    return [code_to_symbol(c) for c in dict.fromkeys(codes)]
 
 
 def main() -> None:
