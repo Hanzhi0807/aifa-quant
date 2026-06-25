@@ -7,6 +7,7 @@ from ..data.adapters import EDBMCPAdapter, StockMCPAdapter
 from ..data.storage import DuckDBStore
 from .fundamental import merge_fundamental_to_daily
 from .macro import merge_macro_to_daily
+from .selection import drop_highly_correlated
 from .technical import (
     compute_atr,
     compute_macd,
@@ -56,6 +57,7 @@ class FeatureBuilder:
         nan_threshold: float = 0.5,
         include_fundamental: bool = True,
         include_macro: bool = True,
+        corr_threshold: float | None = 0.95,
     ) -> pd.DataFrame:
         """Build full feature matrix and label for modeling.
 
@@ -64,6 +66,7 @@ class FeatureBuilder:
             nan_threshold: Drop feature columns with NaN ratio above this threshold.
             include_fundamental: Whether to merge PE/PB/ROE ratios from iFind.
             include_macro: Whether to merge macroeconomic indicators.
+            corr_threshold: If not None, drop one feature from each highly correlated pair.
         """
         print("[yellow]正在从 DuckDB 加载原始日线数据...[/yellow]")
         raw = self.load_raw_data(symbols, start_date, end_date)
@@ -138,6 +141,14 @@ class FeatureBuilder:
         for col in features:
             df[col] = df.groupby("symbol")[col].transform(lambda x: x.fillna(x.median()))
             df[col] = df[col].fillna(df[col].median())
+
+        # Drop highly correlated features to reduce multicollinearity / overfitting
+        if corr_threshold is not None:
+            before = len(features)
+            features = drop_highly_correlated(df, features, threshold=corr_threshold)
+            dropped = before - len(features)
+            if dropped:
+                print(f"[cyan]特征筛选：已移除 {dropped} 个高相关性特征，剩余 {len(features)} 个[/cyan]")
 
         # Drop rows with missing label or any remaining NaN in features
         df = df.dropna(subset=["label_return"] + features)

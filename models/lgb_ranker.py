@@ -19,10 +19,15 @@ class LGBRankerModel(BaseModel):
             "metric": "binary_logloss",
             "boosting_type": "gbdt",
             "num_leaves": 31,
+            "max_depth": 8,
             "learning_rate": 0.05,
             "feature_fraction": 0.8,
             "bagging_fraction": 0.8,
             "bagging_freq": 5,
+            "subsample": 0.8,
+            "min_child_samples": 20,
+            "reg_alpha": 0.01,
+            "reg_lambda": 0.1,
             "verbose": -1,
             "n_estimators": 100,
             "random_state": 42,
@@ -30,11 +35,29 @@ class LGBRankerModel(BaseModel):
         self.model: lgb.LGBMClassifier | None = None
         self.feature_names: list[str] = []
 
-    def fit(self, X: pd.DataFrame, y: pd.Series, feature_names: list[str]) -> None:
+    def fit(
+        self,
+        X: pd.DataFrame,
+        y: pd.Series,
+        feature_names: list[str],
+        eval_X: pd.DataFrame | None = None,
+        eval_y: pd.Series | None = None,
+    ) -> None:
         self.feature_names = [c for c in feature_names if c in X.columns]
         X = X[self.feature_names].copy()
+        eval_set = None
+        if eval_X is not None and eval_y is not None:
+            eval_X = eval_X[self.feature_names].copy()
+            eval_set = [(eval_X, eval_y)]
         self.model = lgb.LGBMClassifier(**self.params)
-        self.model.fit(X, y)
+        fit_kwargs = {}
+        if eval_set:
+            fit_kwargs["eval_set"] = eval_set
+            fit_kwargs["callbacks"] = [
+                lgb.early_stopping(20, verbose=False),
+                lgb.log_evaluation(period=0),
+            ]
+        self.model.fit(X, y, **fit_kwargs)
 
     def predict(self, X: pd.DataFrame) -> pd.Series:
         if self.model is None:

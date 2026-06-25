@@ -77,6 +77,9 @@ def backtest(
         True, "--fundamental/--no-fundamental", help="Include fundamental factors (PE/PB/ROE)"
     ),
     include_macro: bool = typer.Option(True, "--macro/--no-macro", help="Include macro factors (CPI/PMI/M2)"),
+    corr_threshold: float = typer.Option(
+        0.95, "--corr-threshold", help="Drop one feature from each pair with abs correlation >= threshold (set 1.0 to disable)"
+    ),
 ):
     """Run backtest using trained model and TopK-Dropout strategy."""
     settings = Settings()
@@ -89,6 +92,7 @@ def backtest(
         end_date=end,
         include_fundamental=include_fundamental,
         include_macro=include_macro,
+        corr_threshold=corr_threshold,
     )
     if features.empty:
         print("[red]没有可用特征数据[/red]")
@@ -207,11 +211,16 @@ def train(
     end: str = typer.Option("20241231", "--end", help="Training end date YYYYMMDD"),
     horizon: int = typer.Option(5, "--horizon", help="Forecast horizon in days"),
     model_name: str = typer.Option("lgb_stock_selector", "--name", help="Model artifact name"),
+    corr_threshold: float = typer.Option(
+        0.95, "--corr-threshold", help="Drop one feature from each pair with abs correlation >= threshold (set 1.0 to disable)"
+    ),
 ):
     """Train a LightGBM stock selection model."""
     settings = Settings()
     builder = FeatureBuilder(settings)
-    df = builder.build_features(start_date=start, end_date=end, label_horizon=horizon)
+    df = builder.build_features(
+        start_date=start, end_date=end, label_horizon=horizon, corr_threshold=corr_threshold
+    )
     if df.empty:
         print("[red]没有可用数据，请先运行 data-update[/red]")
         raise typer.Exit(code=1)
