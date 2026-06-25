@@ -115,4 +115,5 @@ python -m aifa_quant.cli.main backtest --start 20240101 --end 20241231 --top-k 3
 ## 联系人
 
 - 创建者：ivyzhi0807 / jiangjas@gmail.com
-- 仓库：待补充 GitHub URL
+- 仓库：https://github.com/ivyzhi0807/aifa-quant
+- 当前版本：v0.1.0
