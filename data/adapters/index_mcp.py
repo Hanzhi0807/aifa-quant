@@ -4,6 +4,7 @@ import pandas as pd
 
 from ...config.settings import Settings
 from .base import BaseMCPAdapter
+from .stock_mcp import _split_date_range
 
 
 class IndexMCPAdapter(BaseMCPAdapter):
@@ -27,7 +28,8 @@ class IndexMCPAdapter(BaseMCPAdapter):
         mapping = {}
         for tool in tools:
             name = tool.get("name", "")
-            if "performance" in name.lower() or "kline" in name.lower() or "行情" in name.lower():
+            lower = name.lower()
+            if "index_data" in lower or "performance" in lower or "kline" in lower or "行情" in lower:
                 mapping["daily"] = name
             else:
                 mapping[name] = name
@@ -46,9 +48,32 @@ class IndexMCPAdapter(BaseMCPAdapter):
         if not tool_name:
             raise RuntimeError("No daily tool found on index MCP server")
 
+        if start_date is None or end_date is None:
+            return self._fetch_index_chunk(tool_name, symbol, start_date, end_date)
+
+        chunks = _split_date_range(start_date, end_date, months=4)
+        frames = []
+        for s, e in chunks:
+            df = self._fetch_index_chunk(tool_name, symbol, s, e)
+            if not df.empty:
+                frames.append(df)
+        if not frames:
+            return pd.DataFrame()
+        combined = pd.concat(frames, ignore_index=True)
+        combined = combined.drop_duplicates(subset=["symbol", "trade_date"], keep="first")
+        return combined.sort_values(["symbol", "trade_date"]).reset_index(drop=True)
+
+    def _fetch_index_chunk(
+        self,
+        tool_name: str,
+        symbol: str,
+        start_date: str | None,
+        end_date: str | None,
+    ) -> pd.DataFrame:
+        """Fetch one chunk of index close data."""
         start_str = start_date or ""
         end_str = end_date or ""
-        query = f"{symbol} {start_str} 到 {end_str} 日线行情数据"
+        query = f"{symbol} {start_str} 到 {end_str} 收盘价"
         content = self.call_tool(tool_name, {"query": query})
         df = self._content_to_dataframe(content)
         # Normalize column names similar to stock adapter

@@ -275,72 +275,10 @@ class StockMCPAdapter(BaseMCPAdapter):
 
     @staticmethod
     def _content_to_dataframe(content: list[dict[str, Any]]) -> pd.DataFrame:
-        """Convert MCP tool result content to a pandas DataFrame.
-
-        iFind MCP returns JSON with a markdown table in the `answer` field.
-        We handle both markdown tables and plain JSON arrays/objects.
-        """
-        if not content:
-            return pd.DataFrame()
-
-        first = content[0]
-        if first.get("type") != "text":
-            return pd.DataFrame(first.get("json", {}))
-
-        import json
-        from io import StringIO
-
-        text = first.get("text", "")
-
-        # Case 1: iFind wraps the answer in {"code": 1, "data": {"answer": "markdown table"}}
-        try:
-            payload = json.loads(text)
-        except json.JSONDecodeError:
-            payload = None
-
-        if isinstance(payload, dict):
-            data_obj = payload.get("data", {})
-            # iFind sometimes puts markdown under data.answer, sometimes data.result
-            for key in ("answer", "result"):
-                answer = data_obj.get(key, "")
-                if isinstance(answer, str) and "|" in answer:
-                    return StockMCPAdapter._parse_markdown_table(answer)
-            # Plain JSON object with data array
-            data = data_obj if isinstance(data_obj, list) else None
-            if data is None and isinstance(data_obj, dict):
-                data = data_obj.get("data")
-            if isinstance(data, list):
-                return pd.DataFrame(data)
-            elif isinstance(data, dict) and "data" in data:
-                return pd.DataFrame(data["data"])
-
-        if isinstance(payload, list):
-            return pd.DataFrame(payload)
-
-        # Case 2: raw markdown table
-        if "|" in text:
-            return StockMCPAdapter._parse_markdown_table(text)
-
-        # Fallback: CSV
-        return pd.read_csv(StringIO(text))
+        """Convert MCP tool result content to a pandas DataFrame."""
+        return BaseMCPAdapter._content_to_dataframe(content)
 
     @staticmethod
     def _parse_markdown_table(markdown: str) -> pd.DataFrame:
         """Parse a markdown table into a DataFrame."""
-        lines = [ln.strip() for ln in markdown.splitlines() if ln.strip()]
-        # Only keep lines that look like table rows (contain |)
-        lines = [ln for ln in lines if "|" in ln]
-        # Filter out separator lines like |---|---|
-        rows = [ln for ln in lines if not set(ln.strip("|").replace(" ", "")).issubset({"-", "|", ":"})]
-        if len(rows) < 2:
-            return pd.DataFrame()
-
-        def split_cells(line: str) -> list[str]:
-            return [cell.strip() for cell in line.strip("|").split("|")]
-
-        columns = split_cells(rows[0])
-        data = [split_cells(row) for row in rows[1:]]
-        df = pd.DataFrame(data, columns=columns)
-        # Strip whitespace from cells and column names
-        df.columns = [c.strip() for c in df.columns]
-        return df.map(lambda x: x.strip() if isinstance(x, str) else x)
+        return BaseMCPAdapter._parse_markdown_table(markdown)
