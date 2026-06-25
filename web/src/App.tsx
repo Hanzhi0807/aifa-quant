@@ -4,6 +4,7 @@ import Home from "./pages/Home";
 import Backtest from "./pages/Backtest";
 import Models from "./pages/Models";
 import Data from "./pages/Data";
+import Metrics from "./pages/Metrics";
 
 export default function App() {
   return (
@@ -14,6 +15,7 @@ export default function App() {
         <Route path="/backtest" element={<Backtest />} />
         <Route path="/models" element={<Models />} />
         <Route path="/data" element={<Data />} />
+        <Route path="/metrics" element={<Metrics />} />
       </Routes>
     </div>
   );

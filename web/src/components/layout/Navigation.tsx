@@ -6,6 +6,7 @@ const navItems = [
   { label: "回测", path: "/backtest" },
   { label: "模型", path: "/models" },
   { label: "数据", path: "/data" },
+  { label: "指标", path: "/metrics" },
 ];
 
 export default function Navigation() {

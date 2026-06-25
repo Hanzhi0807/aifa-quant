@@ -119,6 +119,10 @@ python -m aifa_quant.cli.main backtest --start 20240101 --end 20241231 --top-k 5
 
 ![滚动回测净值曲线](docs/images/equity_curve_2023_2024_rolling.png)
 
+## 指标说明
+
+策略回测指标的含义、参考值与“好策略”判断标准见 `docs/METRICS.md`；网站也新增了“指标”页面 `/metrics` 可直接查看。
+
 ## 网站前端（可选）
 
 项目包含一个基于 React + Hono + tRPC + Drizzle + MySQL 的网站，位于 `web/`：
