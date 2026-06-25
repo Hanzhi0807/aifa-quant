@@ -74,8 +74,12 @@ def data_update(
     if symbols:
         target_symbols = symbols
     else:
-        target_symbols = pipeline.fetch_stock_universe(query=query, sample_size=sample)
+        target_symbols = pipeline.fetch_stock_universe(query=query)
         print(f"[cyan]获取到 {len(target_symbols)} 只股票[/cyan]")
+
+    if sample is not None and sample > 0:
+        target_symbols = target_symbols[:sample]
+        print(f"[cyan]已限制为前 {len(target_symbols)} 只股票[/cyan]")
     total_rows = pipeline.update_daily_quotes(
         symbols=target_symbols,
         start_date=start,

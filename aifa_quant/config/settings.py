@@ -5,9 +5,19 @@ from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+def _find_project_root() -> Path:
+    """Locate the project root by walking up until a .env file is found."""
+    path = Path(__file__).resolve().parent.parent
+    while path.parent != path:
+        if (path / ".env").exists():
+            return path
+        path = path.parent
+    return Path(__file__).resolve().parent.parent
+
+
 class Settings(BaseSettings):
-    # Locate .env relative to this file (aifa_quant/config/settings.py -> aifa_quant/.env)
-    _project_root = Path(__file__).parent.parent
+    # Locate .env by walking up from this file until a project root .env is found.
+    _project_root = _find_project_root()
 
     model_config = SettingsConfigDict(
         env_file=str(_project_root / ".env"),
