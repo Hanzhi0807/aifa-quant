@@ -51,7 +51,7 @@ export default function FactorChart() {
   const maxImportance = sortedFactors[0]?.importance || 1;
 
   return (
-    <GlassCard title="Top Factor Importances" subtitle="LightGBM Rolling Model">
+    <GlassCard title="因子重要性 TOP10" subtitle="LightGBM 滚动模型">
       {isLoading ? (
         <div className="h-[280px] flex items-center justify-center">
           <div className="w-8 h-8 border-2 border-[var(--cyan)] border-t-transparent rounded-full animate-spin" />

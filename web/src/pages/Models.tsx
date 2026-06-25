@@ -71,15 +71,15 @@ export default function Models() {
             <ArrowLeft className="w-5 h-5 text-[var(--text-secondary)]" />
           </Link>
           <div>
-            <h1 className="text-2xl font-bold text-white">Models</h1>
+            <h1 className="text-2xl font-bold text-white">模型</h1>
             <p className="text-sm text-[var(--text-secondary)]">
-              Model registry and feature importance analysis
+              模型注册表与因子重要性分析
             </p>
           </div>
         </div>
 
         {/* Model Registry Table */}
-        <GlassCard title="Model Registry">
+        <GlassCard title="模型注册表">
           {modelsLoading ? (
             <div className="space-y-3">
               {Array.from({ length: 3 }).map((_, i) => (
@@ -92,19 +92,19 @@ export default function Models() {
                 <thead>
                   <tr className="border-b border-white/5">
                     <th className="text-left text-xs text-[var(--text-muted)] font-medium uppercase tracking-wider pb-3 pr-4">
-                      Name
+                      名称
                     </th>
                     <th className="text-left text-xs text-[var(--text-muted)] font-medium uppercase tracking-wider pb-3 pr-4">
-                      Path
+                      路径
                     </th>
                     <th className="text-left text-xs text-[var(--text-muted)] font-medium uppercase tracking-wider pb-3 pr-4">
-                      Features
+                      特征数
                     </th>
                     <th className="text-left text-xs text-[var(--text-muted)] font-medium uppercase tracking-wider pb-3 pr-4">
-                      Train Range
+                      训练区间
                     </th>
                     <th className="text-left text-xs text-[var(--text-muted)] font-medium uppercase tracking-wider pb-3">
-                      Created
+                      创建时间
                     </th>
                   </tr>
                 </thead>
@@ -137,7 +137,7 @@ export default function Models() {
                       </td>
                       <td className="py-3.5 pr-4">
                         <span className="text-sm text-[var(--text-secondary)]">
-                          {model.featureColumns?.length || 0} features
+                          {model.featureColumns?.length || 0} 个特征
                         </span>
                       </td>
                       <td className="py-3.5 pr-4">
@@ -163,8 +163,8 @@ export default function Models() {
         {/* Feature Importance Detail */}
         {selectedModelData && (
           <GlassCard
-            title="Feature Importance"
-            subtitle={`${selectedModelData.name} — ${selectedModelData.featureColumns?.length || 0} features`}
+            title="因子重要性"
+            subtitle={`${selectedModelData.name} — ${selectedModelData.featureColumns?.length || 0} 个特征`}
           >
             {factorsLoading ? (
               <div className="h-[400px] flex items-center justify-center">
@@ -227,7 +227,7 @@ export default function Models() {
                 {/* Feature List */}
                 <div className="max-h-[400px] overflow-y-auto">
                   <h4 className="text-sm font-semibold text-white mb-3">
-                    Feature Details
+                    因子详情
                   </h4>
                   <div className="space-y-2">
                     {sortedFactors.map((factor, index) => (

@@ -8,18 +8,18 @@ interface MetricItem {
 }
 
 const metricsList: MetricItem[] = [
-  { name: "Total Return", key: "totalReturn", format: "percent" },
-  { name: "Annual Return", key: "annualReturn", format: "percent" },
-  { name: "Sharpe Ratio", key: "sharpeRatio", format: "ratio" },
-  { name: "Max Drawdown", key: "maxDrawdown", format: "percent" },
-  { name: "Volatility", key: "volatility", format: "percent" },
-  { name: "Win Rate", key: "winRate", format: "percent" },
-  { name: "Profit Factor", key: "profitFactor", format: "ratio" },
-  { name: "Benchmark Return", key: "benchmarkTotalReturn", format: "percent" },
-  { name: "Excess Return", key: "excessReturn", format: "percent" },
-  { name: "Information Ratio", key: "informationRatio", format: "ratio" },
-  { name: "Calmar Ratio", key: "calmarRatio", format: "ratio" },
-  { name: "Sortino Ratio", key: "sortinoRatio", format: "ratio" },
+  { name: "总收益率", key: "totalReturn", format: "percent" },
+  { name: "年化收益率", key: "annualReturn", format: "percent" },
+  { name: "夏普比率", key: "sharpeRatio", format: "ratio" },
+  { name: "最大回撤", key: "maxDrawdown", format: "percent" },
+  { name: "年化波动率", key: "volatility", format: "percent" },
+  { name: "日胜率", key: "winRate", format: "percent" },
+  { name: "盈亏比", key: "profitFactor", format: "ratio" },
+  { name: "基准收益", key: "benchmarkTotalReturn", format: "percent" },
+  { name: "超额收益", key: "excessReturn", format: "percent" },
+  { name: "信息比率", key: "informationRatio", format: "ratio" },
+  { name: "卡玛比率", key: "calmarRatio", format: "ratio" },
+  { name: "索提诺比率", key: "sortinoRatio", format: "ratio" },
 ];
 
 function formatValue(value: number, format: string): string {
@@ -38,7 +38,7 @@ export default function MetricsGrid() {
 
   if (isLoading) {
     return (
-      <GlassCard title="Performance Metrics">
+      <GlassCard title="绩效指标">
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
           {Array.from({ length: 12 }).map((_, i) => (
             <div key={i} className="h-16 bg-white/5 rounded-xl animate-pulse" />

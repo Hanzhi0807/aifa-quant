@@ -24,13 +24,19 @@ interface BacktestRun {
 }
 
 function StatusBadge({ status }: { status: string }) {
+  const statusMap: Record<string, string> = {
+    completed: "已完成",
+    running: "运行中",
+    failed: "失败",
+    pending: "待运行",
+  };
   const classes =
     status === "completed"
       ? "status-completed"
       : status === "running"
       ? "status-running animate-pulse-cyan"
       : "status-failed";
-  return <span className={classes}>{status}</span>;
+  return <span className={classes}>{statusMap[status] || status}</span>;
 }
 
 export default function Backtest() {
@@ -56,20 +62,20 @@ export default function Backtest() {
               <ArrowLeft className="w-5 h-5 text-[var(--text-secondary)]" />
             </Link>
             <div>
-              <h1 className="text-2xl font-bold text-white">Backtest</h1>
+              <h1 className="text-2xl font-bold text-white">回测</h1>
               <p className="text-sm text-[var(--text-secondary)]">
-                Run and manage quantitative backtests
+                运行与管理量化回测
               </p>
             </div>
           </div>
         </div>
 
         {/* Configuration Panel */}
-        <GlassCard title="Backtest Configuration" subtitle="Phase 2 — Coming Soon">
+        <GlassCard title="回测配置" subtitle="Phase 2 — 即将上线">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div>
               <label className="text-xs text-[var(--text-muted)] uppercase tracking-wider block mb-2">
-                Date Range
+                时间区间
               </label>
               <div className="flex items-center gap-2 bg-white/5 rounded-xl px-4 py-2.5 border border-white/5">
                 <Calendar className="w-4 h-4 text-[var(--text-muted)]" />
@@ -80,7 +86,7 @@ export default function Backtest() {
             </div>
             <div>
               <label className="text-xs text-[var(--text-muted)] uppercase tracking-wider block mb-2">
-                Top-K
+                持仓数量 Top-K
               </label>
               <div className="flex items-center gap-2 bg-white/5 rounded-xl px-4 py-2.5 border border-white/5">
                 <Hash className="w-4 h-4 text-[var(--text-muted)]" />
@@ -89,19 +95,19 @@ export default function Backtest() {
             </div>
             <div>
               <label className="text-xs text-[var(--text-muted)] uppercase tracking-wider block mb-2">
-                Rebalance Frequency
+                调仓频率
               </label>
               <div className="flex items-center gap-2 bg-white/5 rounded-xl px-4 py-2.5 border border-white/5">
                 <RefreshCw className="w-4 h-4 text-[var(--text-muted)]" />
                 <span className="text-sm text-[var(--text-secondary)]">
-                  5 days
+                  5 天
                 </span>
               </div>
             </div>
             <div className="flex items-end">
               <button className="pill-btn-primary w-full flex items-center justify-center gap-2 opacity-50 cursor-not-allowed">
                 <Play className="w-4 h-4" />
-                Run Backtest
+                运行回测
               </button>
             </div>
           </div>
@@ -109,13 +115,13 @@ export default function Backtest() {
 
         {/* Backtest History */}
         <GlassCard
-          title="Backtest History"
+          title="回测历史"
           action={
             <div className="relative">
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
               <input
                 type="text"
-                placeholder="Search backtests..."
+                placeholder="搜索回测..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="bg-white/5 border border-white/5 rounded-full pl-9 pr-4 py-2 text-sm text-white placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--cyan)]/30 w-56"
@@ -138,28 +144,28 @@ export default function Backtest() {
                 <thead>
                   <tr className="border-b border-white/5">
                     <th className="text-left text-xs text-[var(--text-muted)] font-medium uppercase tracking-wider pb-3 pr-4">
-                      Name
+                      名称
                     </th>
                     <th className="text-left text-xs text-[var(--text-muted)] font-medium uppercase tracking-wider pb-3 pr-4">
-                      Date Range
+                      时间区间
                     </th>
                     <th className="text-left text-xs text-[var(--text-muted)] font-medium uppercase tracking-wider pb-3 pr-4">
                       Top-K
                     </th>
                     <th className="text-left text-xs text-[var(--text-muted)] font-medium uppercase tracking-wider pb-3 pr-4">
-                      Rebalance
+                      调仓频率
                     </th>
                     <th className="text-left text-xs text-[var(--text-muted)] font-medium uppercase tracking-wider pb-3 pr-4">
-                      Rolling
+                      滚动训练
                     </th>
                     <th className="text-left text-xs text-[var(--text-muted)] font-medium uppercase tracking-wider pb-3 pr-4">
-                      Return
+                      收益率
                     </th>
                     <th className="text-left text-xs text-[var(--text-muted)] font-medium uppercase tracking-wider pb-3 pr-4">
-                      Sharpe
+                      夏普
                     </th>
                     <th className="text-left text-xs text-[var(--text-muted)] font-medium uppercase tracking-wider pb-3">
-                      Status
+                      状态
                     </th>
                   </tr>
                 </thead>
@@ -197,7 +203,7 @@ export default function Backtest() {
                               : "text-[var(--text-muted)]"
                           }`}
                         >
-                          {run.rolling ? "Yes" : "No"}
+                          {run.rolling ? "是" : "否"}
                         </span>
                       </td>
                       <td className="py-3.5 pr-4">
@@ -228,7 +234,7 @@ export default function Backtest() {
               {filtered.length === 0 && (
                 <div className="text-center py-12">
                   <p className="text-sm text-[var(--text-muted)]">
-                    No backtests found
+                    暂无回测记录
                   </p>
                 </div>
               )}

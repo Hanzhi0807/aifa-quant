@@ -2,10 +2,10 @@ import { Link, useLocation } from "react-router";
 import { Github, Activity } from "lucide-react";
 
 const navItems = [
-  { label: "Dashboard", path: "/" },
-  { label: "Backtest", path: "/backtest" },
-  { label: "Models", path: "/models" },
-  { label: "Data", path: "/data" },
+  { label: "概览", path: "/" },
+  { label: "回测", path: "/backtest" },
+  { label: "模型", path: "/models" },
+  { label: "数据", path: "/data" },
 ];
 
 export default function Navigation() {

@@ -13,11 +13,11 @@ import { trpc } from "@/providers/trpc";
 import GlassCard from "../layout/GlassCard";
 
 const dateRanges = [
-  { label: "1M", days: 30 },
-  { label: "3M", days: 90 },
-  { label: "6M", days: 180 },
-  { label: "1Y", days: 365 },
-  { label: "ALL", days: 0 },
+  { label: "1月", days: 30 },
+  { label: "3月", days: 90 },
+  { label: "6月", days: 180 },
+  { label: "1年", days: 365 },
+  { label: "全部", days: 0 },
 ];
 
 interface TooltipPayloadItem {
@@ -45,8 +45,8 @@ function CustomTooltip({ active, payload, label }: CustomTooltipProps) {
           />
           <span className="text-xs text-[var(--text-secondary)]">
             {entry.dataKey === "normalizedValue"
-              ? "Portfolio"
-              : "CSI 300 Benchmark"}
+              ? "组合"
+              : "沪深 300 基准"}
             :
           </span>
           <span className="text-xs font-semibold text-white">
@@ -81,8 +81,8 @@ export default function EquityCurveChart() {
 
   return (
     <GlassCard
-      title="Equity Curve"
-      subtitle="Portfolio vs CSI 300 Benchmark"
+      title="权益曲线"
+      subtitle="组合净值 vs 沪深 300 基准"
       action={
         <div className="flex gap-1">
           {dateRanges.map((r) => (
@@ -143,8 +143,8 @@ export default function EquityCurveChart() {
               formatter={(value: string) => (
                 <span style={{ color: "rgba(255,255,255,0.6)", fontSize: "12px" }}>
                   {value === "normalizedValue"
-                    ? "Portfolio"
-                    : "CSI 300 Benchmark"}
+                    ? "组合"
+                    : "沪深 300 基准"}
                 </span>
               )}
             />

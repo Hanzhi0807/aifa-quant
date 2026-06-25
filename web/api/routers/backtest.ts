@@ -8,13 +8,13 @@ import { desc, eq } from "drizzle-orm";
 const mockBacktests = [
   {
     id: 1,
-    name: "LightGBM_Rolling_2024",
+    name: "LightGBM 滚动 2024",
     startDate: "2023-01-03",
     endDate: "2024-12-31",
     topK: 10,
     rebalanceFreq: 5,
     rolling: true,
-    benchmark: "CSI300",
+    benchmark: "沪深300",
     status: "completed",
     metrics: {
       totalReturn: 0.2655,
@@ -34,13 +34,13 @@ const mockBacktests = [
   },
   {
     id: 2,
-    name: "LightGBM_Fixed_2024",
+    name: "LightGBM 固定窗口 2024",
     startDate: "2023-01-03",
     endDate: "2024-12-31",
     topK: 15,
     rebalanceFreq: 10,
     rolling: false,
-    benchmark: "CSI300",
+    benchmark: "沪深300",
     status: "completed",
     metrics: {
       totalReturn: 0.1987,
@@ -60,13 +60,13 @@ const mockBacktests = [
   },
   {
     id: 3,
-    name: "LightGBM_Rolling_Q4_2024",
+    name: "LightGBM 滚动 2024Q4",
     startDate: "2024-10-01",
     endDate: "2024-12-31",
     topK: 8,
     rebalanceFreq: 3,
     rolling: true,
-    benchmark: "CSI300",
+    benchmark: "沪深300",
     status: "completed",
     metrics: {
       totalReturn: 0.0892,
@@ -86,13 +86,13 @@ const mockBacktests = [
   },
   {
     id: 4,
-    name: "XGBoost_Rolling_2024",
+    name: "XGBoost 滚动 2024",
     startDate: "2023-06-01",
     endDate: "2024-12-31",
     topK: 10,
     rebalanceFreq: 5,
     rolling: true,
-    benchmark: "CSI300",
+    benchmark: "沪深300",
     status: "completed",
     metrics: {
       totalReturn: 0.2234,
@@ -112,13 +112,13 @@ const mockBacktests = [
   },
   {
     id: 5,
-    name: "Ensemble_Model_2024",
+    name: "集成模型 2024",
     startDate: "2023-01-03",
     endDate: "2024-12-31",
     topK: 12,
     rebalanceFreq: 7,
     rolling: true,
-    benchmark: "CSI300",
+    benchmark: "沪深300",
     status: "completed",
     metrics: {
       totalReturn: 0.3123,

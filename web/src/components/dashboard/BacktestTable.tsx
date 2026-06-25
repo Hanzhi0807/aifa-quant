@@ -21,13 +21,19 @@ interface BacktestRun {
 }
 
 function StatusBadge({ status }: { status: string }) {
+  const statusMap: Record<string, string> = {
+    completed: "已完成",
+    running: "运行中",
+    failed: "失败",
+    pending: "待运行",
+  };
   const classes =
     status === "completed"
       ? "status-completed"
       : status === "running"
       ? "status-running animate-pulse-cyan"
       : "status-failed";
-  return <span className={classes}>{status}</span>;
+  return <span className={classes}>{statusMap[status] || status}</span>;
 }
 
 export default function BacktestTable() {
@@ -37,13 +43,13 @@ export default function BacktestTable() {
 
   return (
     <GlassCard
-      title="Recent Backtest Runs"
+      title="最近回测"
       action={
         <Link
           to="/backtest"
           className="text-xs text-[var(--cyan)] hover:underline flex items-center gap-1"
         >
-          View All
+          查看全部
           <ArrowUpRight className="w-3 h-3" />
         </Link>
       }
@@ -60,28 +66,28 @@ export default function BacktestTable() {
             <thead>
               <tr className="border-b border-white/5">
                 <th className="text-left text-xs text-[var(--text-muted)] font-medium uppercase tracking-wider pb-3 pr-4">
-                  Name
+                  名称
                 </th>
                 <th className="text-left text-xs text-[var(--text-muted)] font-medium uppercase tracking-wider pb-3 pr-4">
-                  Date Range
+                  时间区间
                 </th>
                 <th className="text-left text-xs text-[var(--text-muted)] font-medium uppercase tracking-wider pb-3 pr-4">
                   Top-K
                 </th>
                 <th className="text-left text-xs text-[var(--text-muted)] font-medium uppercase tracking-wider pb-3 pr-4">
-                  Rebalance
+                  调仓频率
                 </th>
                 <th className="text-left text-xs text-[var(--text-muted)] font-medium uppercase tracking-wider pb-3 pr-4">
-                  Rolling
+                  滚动训练
                 </th>
                 <th className="text-left text-xs text-[var(--text-muted)] font-medium uppercase tracking-wider pb-3 pr-4">
-                  Return
+                  收益率
                 </th>
                 <th className="text-left text-xs text-[var(--text-muted)] font-medium uppercase tracking-wider pb-3 pr-4">
-                  Sharpe
+                  夏普
                 </th>
                 <th className="text-left text-xs text-[var(--text-muted)] font-medium uppercase tracking-wider pb-3">
-                  Status
+                  状态
                 </th>
               </tr>
             </thead>
@@ -120,7 +126,7 @@ export default function BacktestTable() {
                           : "text-[var(--text-muted)]"
                       }`}
                     >
-                      {run.rolling ? "Yes" : "No"}
+                      {run.rolling ? "是" : "否"}
                     </span>
                   </td>
                   <td className="py-3 pr-4">

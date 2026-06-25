@@ -29,9 +29,9 @@ export default function Data() {
             <ArrowLeft className="w-5 h-5 text-[var(--text-secondary)]" />
           </Link>
           <div>
-            <h1 className="text-2xl font-bold text-white">Data</h1>
+            <h1 className="text-2xl font-bold text-white">数据</h1>
             <p className="text-sm text-[var(--text-secondary)]">
-              Database statistics and data overview
+              数据库统计与数据概览
             </p>
           </div>
         </div>
@@ -39,25 +39,25 @@ export default function Data() {
         {/* KPI Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <KPICard
-            label="Total Records"
+            label="总记录数"
             value={String(dbInfo?.totalRecords?.toLocaleString() || "24,200")}
             icon={Database}
             variant="cyan"
           />
           <KPICard
-            label="Backtest Runs"
+            label="回测次数"
             value={String(backtests?.length || 5)}
             icon={BarChart3}
             variant="green"
           />
           <KPICard
-            label="Models"
+            label="模型数量"
             value={String(models?.length || 3)}
             icon={Layers}
             variant="cyan"
           />
           <KPICard
-            label="Date Range"
+            label="时间区间"
             value={
               dbInfo?.dateRange
                 ? `${dbInfo.dateRange.min?.slice(0, 4)}-${dbInfo.dateRange.max?.slice(0, 4)}`
@@ -69,7 +69,7 @@ export default function Data() {
         </div>
 
         {/* Data Summary */}
-        <GlassCard title="Data Summary" subtitle="AifaQuant Data Coverage">
+        <GlassCard title="数据概览" subtitle="AifaQuant 数据覆盖">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-4">
               <div className="flex items-start gap-3">
@@ -78,10 +78,10 @@ export default function Data() {
                 </div>
                 <div>
                   <h4 className="text-sm font-semibold text-white mb-1">
-                    Database Records
+                    数据库记录
                   </h4>
                   <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
-                    The database currently stores {dbInfo?.totalRecords?.toLocaleString() || "24,200"} equity curve data points across {(backtests?.length || 5)} backtest runs, covering {dbInfo?.dateRange?.min || "2023-01-03"} to {dbInfo?.dateRange?.max || "2024-12-31"}.
+                    数据库当前存储 {(backtests?.length || 5)} 次回测的 {dbInfo?.totalRecords?.toLocaleString() || "24,200"} 条权益曲线数据点，覆盖 {dbInfo?.dateRange?.min || "2023-01-03"} 至 {dbInfo?.dateRange?.max || "2024-12-31"}。
                   </p>
                 </div>
               </div>
@@ -92,10 +92,10 @@ export default function Data() {
                 </div>
                 <div>
                   <h4 className="text-sm font-semibold text-white mb-1">
-                    Backtest Coverage
+                    回测覆盖
                   </h4>
                   <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
-                    {(backtests?.length || 5)} backtest runs completed with various configurations including LightGBM, XGBoost, and Ensemble models.
+                    已完成 {(backtests?.length || 5)} 次回测，包含 LightGBM、XGBoost 与 Ensemble 等不同模型配置。
                   </p>
                 </div>
               </div>
@@ -106,10 +106,10 @@ export default function Data() {
                 </div>
                 <div>
                   <h4 className="text-sm font-semibold text-white mb-1">
-                    Update Frequency
+                    更新频率
                   </h4>
                   <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
-                    Data is updated after each backtest run. The latest backtest was completed on {new Date().toLocaleDateString()}.
+                    每次回测完成后更新数据。最新回测完成于 {new Date().toLocaleDateString()}。
                   </p>
                 </div>
               </div>
@@ -117,14 +117,14 @@ export default function Data() {
 
             <div className="bg-white/[0.03] rounded-xl p-5">
               <h4 className="text-sm font-semibold text-white mb-4">
-                Feature Coverage
+                因子覆盖
               </h4>
               <div className="space-y-3">
                 {[
-                  { category: "Technical Indicators", features: ["RSI", "MACD", "Momentum", "Volatility", "Turnover"], count: 5 },
-                  { category: "Fundamental Factors", features: ["PE", "PB", "ROE"], count: 3 },
-                  { category: "Price/Volume", features: ["Close Ratio", "Amount Ratio", "High-Low Ratio"], count: 3 },
-                  { category: "Market Factors", features: ["Market Cap", "Industry Momentum", "Beta"], count: 3 },
+                  { category: "技术指标", features: ["RSI", "MACD", "Momentum", "Volatility", "Turnover"], count: 5 },
+                  { category: "基本面因子", features: ["PE", "PB", "ROE"], count: 3 },
+                  { category: "价量因子", features: ["Close Ratio", "Amount Ratio", "High-Low Ratio"], count: 3 },
+                  { category: "市场因子", features: ["Market Cap", "Industry Momentum", "Beta"], count: 3 },
                 ].map((group) => (
                   <div key={group.category}>
                     <div className="flex items-center justify-between mb-1.5">
@@ -153,25 +153,25 @@ export default function Data() {
         </GlassCard>
 
         {/* Quick Start Guide */}
-        <GlassCard title="Quick Start" subtitle="Getting Started with AifaQuant">
+        <GlassCard title="快速开始" subtitle="AifaQuant 快速入门">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {[
               {
                 step: "01",
-                title: "Install",
+                title: "安装",
                 desc: "pip install git+https://github.com/ivyzhi0807/aifa-quant.git",
                 icon: <Layers className="w-5 h-5 text-[var(--cyan)]" />,
               },
               {
                 step: "02",
-                title: "Configure",
-                desc: "Set up your iFind token in .env file for data access",
+                title: "配置",
+                desc: "在 .env 文件中配置 iFind token 以获取数据",
                 icon: <Database className="w-5 h-5 text-[var(--green)]" />,
               },
               {
                 step: "03",
-                title: "Run Backtest",
-                desc: "Use the Python API or web dashboard to trigger backtests",
+                title: "运行回测",
+                desc: "使用 Python API 或网页仪表盘触发回测",
                 icon: <TrendingUp className="w-5 h-5 text-[var(--orange)]" />,
               },
             ].map((item) => (
@@ -185,7 +185,7 @@ export default function Data() {
                   </div>
                   <div>
                     <span className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider">
-                      Step {item.step}
+                      步骤 {item.step}
                     </span>
                     <h4 className="text-sm font-semibold text-white">
                       {item.title}

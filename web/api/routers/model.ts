@@ -7,7 +7,7 @@ import { eq } from "drizzle-orm";
 const mockModels = [
   {
     id: 1,
-    name: "LightGBM_Rolling_v1",
+    name: "LightGBM 滚动 v1",
     path: "models/lightgbm_rolling_v1.pkl",
     featureColumns: [
       "rsi_14", "macd_signal", "pe_ttm", "pb_lf", "roe_ttm",
@@ -21,7 +21,7 @@ const mockModels = [
   },
   {
     id: 2,
-    name: "XGBoost_Rolling_v1",
+    name: "XGBoost 滚动 v1",
     path: "models/xgboost_rolling_v1.pkl",
     featureColumns: [
       "rsi_14", "macd_signal", "pe_ttm", "pb_lf", "roe_ttm",
@@ -34,7 +34,7 @@ const mockModels = [
   },
   {
     id: 3,
-    name: "Ensemble_Stacking_v1",
+    name: "集成 Stacking v1",
     path: "models/ensemble_stacking_v1.pkl",
     featureColumns: [
       "rsi_14", "macd_signal", "pe_ttm", "pb_lf", "roe_ttm",
