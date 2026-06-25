@@ -8,11 +8,16 @@
 
 1. **核心层保持稳定**
    - 数据存储 schema（DuckDB 表结构）
-   - 因子接口（`FeatureBuilder`、`build_per_symbol`）
-   - 模型接口（`BaseModel`）
-   - 策略接口（`BaseStrategy`）
-   - 回测接口（`BacktestEngine`）
-   - 执行接口（`BaseBroker`）
+   - 数据接口：`aifa_quant.core.interfaces.BaseDataSource`
+   - 模型接口：`aifa_quant.models.base.BaseModel`
+   - 策略接口：`aifa_quant.strategy.base.BaseStrategy`
+   - 回测接口：`aifa_quant.backtest.engine.BacktestEngine`
+   - 执行接口：`aifa_quant.core.interfaces.BaseBroker`
+
+   具体定义见：
+   - `aifa_quant/core/interfaces.py`
+   - `aifa_quant/models/base.py`
+   - `aifa_quant/strategy/base.py`
 
 2. **外部长处通过适配器/插件接入**
    - 不直接依赖外部库

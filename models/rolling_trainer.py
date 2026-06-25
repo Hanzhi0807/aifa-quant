@@ -6,6 +6,7 @@ import pandas as pd
 
 from ..config.settings import Settings
 from ..features import FeatureBuilder
+from .base import BaseModel
 from .lgb_ranker import LGBRankerModel
 
 
@@ -14,7 +15,7 @@ class RollingTrainer:
 
     def __init__(
         self,
-        model_factory: Callable[[], LGBRankerModel] | None = None,
+        model_factory: Callable[[], BaseModel] | None = None,
         train_window_days: int = 252 * 2,
         min_train_samples: int = 500,
         settings: Settings | None = None,

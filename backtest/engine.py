@@ -4,8 +4,8 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-from ..models import LGBRankerModel
-from ..strategy import TopKDropoutStrategy
+from ..models.base import BaseModel
+from ..strategy.base import BaseStrategy
 
 
 @dataclass
@@ -59,8 +59,8 @@ class BacktestEngine:
         self,
         quotes: pd.DataFrame,
         features: pd.DataFrame,
-        model: LGBRankerModel,
-        strategy: TopKDropoutStrategy,
+        model: BaseModel,
+        strategy: BaseStrategy,
         start_date: str | None = None,
         end_date: str | None = None,
     ) -> pd.DataFrame:
