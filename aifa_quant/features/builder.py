@@ -8,6 +8,7 @@ from ..data.storage import DuckDBStore
 from .fundamental import merge_fundamental_to_daily
 from .macro import merge_macro_to_daily
 from .selection import drop_highly_correlated
+from .sentiment import build_sentiment_features, merge_sentiment_to_daily
 from .technical import (
     compute_atr,
     compute_macd,
@@ -57,6 +58,7 @@ class FeatureBuilder:
         nan_threshold: float = 0.5,
         include_fundamental: bool = True,
         include_macro: bool = True,
+        include_sentiment: bool = True,
         corr_threshold: float | None = 0.95,
     ) -> pd.DataFrame:
         """Build full feature matrix and label for modeling.
@@ -66,6 +68,7 @@ class FeatureBuilder:
             nan_threshold: Drop feature columns with NaN ratio above this threshold.
             include_fundamental: Whether to merge PE/PB/ROE ratios from iFind.
             include_macro: Whether to merge macroeconomic indicators.
+            include_sentiment: Whether to merge news sentiment factors from iFind.
             corr_threshold: If not None, drop one feature from each highly correlated pair.
         """
         print("[yellow]正在从 DuckDB 加载原始日线数据...[/yellow]")
@@ -114,6 +117,29 @@ class FeatureBuilder:
                         raw = merge_macro_to_daily(raw, macro, col_name)
                 except Exception as e:
                     print(f"  [WARN] {col_name} 宏观数据获取失败: {e}")
+
+        # Optionally merge sentiment data
+        if include_sentiment:
+            print("[yellow]正在获取情绪因子（新闻舆情）...[/yellow]")
+            try:
+                symbols = raw["symbol"].unique()
+                name_map = (
+                    raw.drop_duplicates("symbol").set_index("symbol")["name"].to_dict()
+                    if "name" in raw.columns
+                    else None
+                )
+                sentiment = build_sentiment_features(
+                    symbols.tolist(),
+                    name_map=name_map,
+                    start_date=start_date,
+                    end_date=end_date,
+                    settings=self.settings,
+                )
+                if not sentiment.empty:
+                    raw = merge_sentiment_to_daily(raw, sentiment)
+                    print(f"[green]已合并情绪因子，覆盖 {sentiment['symbol'].nunique()} 只股票[/green]")
+            except Exception as e:
+                print(f"  [WARN] 情绪因子获取失败: {e}")
 
         print("[yellow]正在构建技术因子...[/yellow]")
         frames = []

@@ -32,8 +32,12 @@ wheels/
 # Virtual environments
 venv/
 .venv/
+.venv312/
 env/
 ENV/
+
+# Sensitive key files
+ifind key.txt
 
 # IDE
 .vscode/
