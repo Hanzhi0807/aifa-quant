@@ -114,7 +114,6 @@ class DailyUpdatePipeline:
             tasks.append((sym, sym_start))
 
         total_rows = 0
-        fetched: list[tuple[str, pd.DataFrame | None, Exception | None]] = []
 
         def fetch_one(symbol: str, sym_start: str) -> tuple[str, pd.DataFrame | None, Exception | None]:
             # Respect iFind MCP rate limit: 5 requests / second
