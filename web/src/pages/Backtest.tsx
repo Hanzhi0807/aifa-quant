@@ -71,7 +71,7 @@ export default function Backtest() {
         </div>
 
         {/* Configuration Panel */}
-        <GlassCard title="回测配置" subtitle="Phase 2 — 即将上线">
+        <GlassCard title="回测配置" subtitle="第二阶段 — 即将上线">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div>
               <label className="text-xs text-[var(--text-muted)] uppercase tracking-wider block mb-2">

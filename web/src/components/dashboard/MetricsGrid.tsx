@@ -57,7 +57,7 @@ export default function MetricsGrid() {
   const maxVal = numericValues.length > 0 ? Math.max(...numericValues) : 1;
 
   return (
-    <GlassCard title="Performance Metrics">
+    <GlassCard title="绩效指标">
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
         {metricsList.map((metric) => {
           const val = Number(

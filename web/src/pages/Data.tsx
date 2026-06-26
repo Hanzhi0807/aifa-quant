@@ -121,10 +121,10 @@ export default function Data() {
               </h4>
               <div className="space-y-3">
                 {[
-                  { category: "技术指标", features: ["RSI", "MACD", "Momentum", "Volatility", "Turnover"], count: 5 },
+                  { category: "技术指标", features: ["RSI", "MACD", "动量", "波动率", "换手率"], count: 5 },
                   { category: "基本面因子", features: ["PE", "PB", "ROE"], count: 3 },
-                  { category: "价量因子", features: ["Close Ratio", "Amount Ratio", "High-Low Ratio"], count: 3 },
-                  { category: "市场因子", features: ["Market Cap", "Industry Momentum", "Beta"], count: 3 },
+                  { category: "价量因子", features: ["收盘比", "成交额比", "振幅比"], count: 3 },
+                  { category: "市场因子", features: ["市值", "行业动量", "Beta"], count: 3 },
                 ].map((group) => (
                   <div key={group.category}>
                     <div className="flex items-center justify-between mb-1.5">
