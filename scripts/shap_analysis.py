@@ -60,15 +60,27 @@ def main(
 
     print(f"[yellow]计算 SHAP 值，样本数: {len(X)}，特征数: {len(features)}[/yellow]")
     explainer = shap.TreeExplainer(model.model)
-    shap_values = explainer.shap_values(X)
+    raw_shap_values = explainer.shap_values(X)
+
+    # LightGBM binary objective returns a list of arrays (one per class).
+    # We care about the positive class (index 1).
+    if isinstance(raw_shap_values, list):
+        shap_values = raw_shap_values[1]
+        expected_value = (
+            explainer.expected_value[1]
+            if hasattr(explainer.expected_value, "__getitem__")
+            else explainer.expected_value
+        )
+    else:
+        shap_values = raw_shap_values
+        expected_value = explainer.expected_value
 
     out_dir = Path(output_dir or settings.data_dir_path / "reports")
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # Save SHAP summary CSV
-    mean_shap = pd.DataFrame(
-        {"feature": features, "mean_shap": shap_values.mean(axis=0) if hasattr(shap_values, "mean") else [0] * len(features)}
-    )
+    mean_values = shap_values.mean(axis=0) if hasattr(shap_values, "mean") else [0] * len(features)
+    mean_shap = pd.DataFrame({"feature": features, "mean_shap": mean_values})
     mean_shap = mean_shap.sort_values("mean_shap", key=lambda x: x.abs(), ascending=False)
     csv_path = out_dir / f"shap_summary_{model_name}_{start}_{end}.csv"
     mean_shap.to_csv(csv_path, index=False)
@@ -76,7 +88,7 @@ def main(
 
     # Save a subset of SHAP values for downstream inspection
     shap_df = pd.DataFrame(shap_values, columns=features)
-    shap_df["expected_value"] = explainer.expected_value
+    shap_df["expected_value"] = expected_value
     shap_df.to_parquet(out_dir / f"shap_values_{model_name}_{start}_{end}.parquet", index=False)
 
     print("\n[bold]Top 10 特征（按平均 |SHAP|）:[/bold]")

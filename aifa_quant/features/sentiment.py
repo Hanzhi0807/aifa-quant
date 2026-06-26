@@ -95,7 +95,7 @@ def merge_sentiment_to_daily(
     for col in sentiment_cols:
         if col in merged.columns:
             merged[col] = merged.groupby("symbol")[col].transform(
-                lambda x: x.fillna(method="ffill", limit=5)
+                lambda x: x.ffill(limit=5)
             )
 
     return merged

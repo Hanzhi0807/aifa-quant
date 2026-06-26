@@ -3,15 +3,12 @@
 from __future__ import annotations
 
 import json
-import re
-from datetime import datetime, timedelta
 from typing import Any
 
 import pandas as pd
 
 from ...config.settings import Settings
 from .base import BaseMCPAdapter
-
 
 # Simple Chinese financial sentiment lexicon.
 # Positive / negative word lists for fast, dependency-free scoring.
@@ -181,14 +178,30 @@ class NewsMCPAdapter(BaseMCPAdapter):
         data_obj = payload.get("data", {})
         articles = None
         if isinstance(data_obj, dict):
+            # iFind sometimes returns the payload as a JSON string inside data.answer.
+            answer = data_obj.get("answer")
+            if isinstance(answer, str):
+                answer = answer.strip()
+                if answer.startswith("["):
+                    try:
+                        articles = json.loads(answer)
+                    except json.JSONDecodeError:
+                        articles = None
+                elif "|" in answer:
+                    return BaseMCPAdapter._parse_markdown_table(answer)
+                else:
+                    # Non-tabular answer (e.g. quota/limit message) -> no data.
+                    return pd.DataFrame()
+
             raw = data_obj.get("data")
-            if isinstance(raw, str):
-                try:
-                    articles = json.loads(raw)
-                except json.JSONDecodeError:
-                    articles = None
-            elif isinstance(raw, list):
-                articles = raw
+            if articles is None:
+                if isinstance(raw, str):
+                    try:
+                        articles = json.loads(raw)
+                    except json.JSONDecodeError:
+                        articles = None
+                elif isinstance(raw, list):
+                    articles = raw
         elif isinstance(data_obj, list):
             articles = data_obj
 

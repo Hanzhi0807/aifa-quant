@@ -34,7 +34,11 @@ def run_single_backtest(
 ) -> dict[str, float]:
     """Run one backtest configuration and return key metrics."""
     df = features.copy()
-    feature_cols = [c for c in df.columns if c not in {"symbol", "name", "trade_date", "open", "high", "low", "close", "volume", "amount", "label_return", "label_binary"}]
+    excluded = {
+        "symbol", "name", "trade_date", "open", "high", "low",
+        "close", "volume", "amount", "label_return", "label_binary",
+    }
+    feature_cols = [c for c in df.columns if c not in excluded]
 
     if rolling:
         trainer = RollingTrainer(train_window_days=252 * 2, min_train_samples=500, settings=Settings())
