@@ -166,15 +166,15 @@ python scripts/import_source_data.py path/to/aifa_quant_daily_quotes_2023_2024.c
 
 | 指标 | 数值 |
 |------|------|
-| 总收益率 | 348.45% |
-| 年化收益率 | 118.43% |
-| 年化波动率 | 58.44% |
-| 夏普比率 | 2.026 |
-| 最大回撤 | -30.49% |
-| 日胜率 | 54.45% |
+| 总收益率 | 336.37% |
+| 年化收益率 | 115.35% |
+| 年化波动率 | 49.21% |
+| 夏普比率 | 2.344 |
+| 最大回撤 | -27.40% |
+| 日胜率 | 55.69% |
 | 沪深 300 基准收益 | 1.21% |
-| 超额收益 | 347.24% |
-| 超额夏普 | 1.710 |
+| 超额收益 | 335.16% |
+| 超额夏普 | 1.940 |
 
 > ⚠️ 高收益主要来自小样本 + 参数选择，存在过拟合风险，不代表实盘表现。
 
@@ -253,5 +253,5 @@ npm run build
 - 指标说明：`docs/METRICS.md`
 - 网站任务书：`docs/WEBSITE_TASK.md`
 - 集成路线图：`docs/INTEGRATION_ROADMAP.md`
-- 测试数据源 Release：https://github.com/ivyzhi0807/aifa-quant/releases/tag/v0.3.0-data-csi300
+- 测试数据源 Release：https://github.com/ivyzhi0807/aifa-quant/releases/tag/v0.4.0-data-full
 - 创建者：ivyzhi0807 / jiangjas@gmail.com
