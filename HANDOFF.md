@@ -195,7 +195,9 @@ npm run db:push
 npm run dev
 ```
 
-本地预览：`http://localhost:3000`
+线上预览：https://h6lwpd6rnrixk.ok.kimi.link
+
+本地开发预览：`http://localhost:3000`
 
 构建检查：
 
@@ -212,6 +214,7 @@ npm run build
 | 问题 | 说明 | 建议 |
 |------|------|------|
 | GitHub Actions 被禁用 | `gh workflow run` 报 `Actions has been disabled for this user` | 在 GitHub 账号/仓库设置里启用 Actions |
+| iFind MCP 配额耗尽 | 股票/新闻 MCP 均可能报限流或无法返回数据 | 使用 Release `v0.3.0-data-csi300` 导入数据，避免继续消耗配额 |
 | iFind news MCP 无数据 | 返回 `用户使用过于频繁`，情绪因子当前为空 | 暂时关闭 `--sentiment`；等配额恢复后重试 |
 | 沪深 300 成分股不完整 | 新浪财经去重后约 288 只 | 可接入 iFind 指数成分股工具或上交所/深交所官方列表做补充 |
 | 幸存者偏差 | 使用当前成分股回测历史区间 | 获取历史调仓记录，按真实成分股选股 |

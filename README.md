@@ -27,10 +27,11 @@
    python -m aifa_quant.cli.main test-connection
    ```
 
-4. 更新本地数据：
+4. 更新本地数据（需要 iFind MCP 配额）：
    ```bash
    python -m aifa_quant.cli.main data-update --start 20230101 --end 20241231
    ```
+   如果 iFind MCP 配额已耗尽，可直接下载 [Release v0.3.0-data-csi300](https://github.com/ivyzhi0807/aifa-quant/releases/tag/v0.3.0-data-csi300) 并用 `python scripts/import_source_data.py <csv.gz>` 导入。
 
 5. 训练选股模型：
    ```bash
@@ -140,7 +141,9 @@ npm run db:push
 npm run dev
 ```
 
-本地启动后访问 http://localhost:5173 查看仪表盘。
+线上预览：https://h6lwpd6rnrixk.ok.kimi.link
+
+本地开发启动后访问 http://localhost:3000 查看仪表盘。
 
 详细说明见 `web/web-README.md` 和 `web/DEPLOY.md`。
 
