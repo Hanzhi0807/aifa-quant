@@ -143,3 +143,58 @@ class DailyUpdatePipeline:
                     print(f"[ERROR] {symbol} 保存失败: {e}", flush=True)
 
         return total_rows
+
+    def update_fundamental_data(
+        self,
+        symbols: list[str],
+        start_date: str | None = None,
+        end_date: str | None = None,
+    ) -> int:
+        """Fetch and cache fundamental/valuation data for given symbols."""
+        cached = self.store.load_fundamental_data(symbols, start_date, end_date)
+        cached_symbols = set(cached["symbol"].unique()) if not cached.empty else set()
+        missing = [s for s in symbols if s not in cached_symbols]
+        if not missing:
+            print(f"[green]基本面数据已全部缓存：{len(cached_symbols)} 只股票[/green]")
+            return 0
+
+        total_rows = 0
+        for i, symbol in enumerate(missing, 1):
+            print(f"[{i}/{len(missing)}] {symbol} 基本面数据")
+            try:
+                self._rate_limiter.acquire()
+                df = self.adapter.get_financial_data(symbol, start_date, end_date)
+                if not df.empty:
+                    total_rows += self.store.save_fundamental_data(df)
+            except Exception as e:
+                print(f"[WARN] {symbol} 基本面数据获取失败: {e}")
+        return total_rows
+
+    def update_macro_data(
+        self,
+        start_date: str | None = None,
+        end_date: str | None = None,
+    ) -> int:
+        """Fetch and cache macroeconomic indicators."""
+        from ..adapters import EDBMCPAdapter
+
+        edb = EDBMCPAdapter(self.settings)
+        indicators = {
+            "cpi_yoy": "中国CPI同比",
+            "pmi": "中国PMI",
+            "m2_yoy": "中国M2同比",
+        }
+        total_rows = 0
+        for col_name, query in indicators.items():
+            cached = self.store.load_macro_data(col_name, start_date, end_date)
+            if not cached.empty:
+                print(f"[green]{col_name} 已缓存 ({len(cached)} 条)[/green]")
+                continue
+            print(f"正在获取 {col_name}: {query}")
+            try:
+                df = edb.get_macro_data(query, start_date, end_date)
+                if not df.empty:
+                    total_rows += self.store.save_macro_data(df, col_name)
+            except Exception as e:
+                print(f"[WARN] {col_name} 宏观数据获取失败: {e}")
+        return total_rows

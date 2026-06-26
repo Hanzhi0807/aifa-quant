@@ -57,6 +57,8 @@ def data_update(
     ),
     sample: int | None = typer.Option(None, "--sample", help="Limit universe to first N stocks for testing"),
     workers: int = typer.Option(3, "--workers", help="Concurrent download workers"),
+    fundamental: bool = typer.Option(False, "--fundamental", help="Also fetch and cache PE/PB/ROE fundamental data"),
+    macro: bool = typer.Option(False, "--macro", help="Also fetch and cache CPI/PMI/M2 macro data"),
 ):
     """Fetch daily quotes from iFind MCP and persist to DuckDB."""
     # Map friendly universe names to iFind queries
@@ -87,7 +89,17 @@ def data_update(
         end_date=end,
         incremental=not full,
     )
-    print(f"[bold green]共写入 {total_rows} 条数据[/bold green]")
+    print(f"[bold green]日线数据共写入 {total_rows} 条[/bold green]")
+
+    if fundamental:
+        fundamental_rows = pipeline.update_fundamental_data(
+            symbols=target_symbols, start_date=start, end_date=end
+        )
+        print(f"[bold green]基本面数据共写入 {fundamental_rows} 条[/bold green]")
+
+    if macro:
+        macro_rows = pipeline.update_macro_data(start_date=start, end_date=end)
+        print(f"[bold green]宏观数据共写入 {macro_rows} 条[/bold green]")
 
 
 @app.command()

@@ -85,20 +85,31 @@ class FeatureBuilder:
         # Optionally merge fundamental data
         if include_fundamental:
             print("[yellow]正在获取基本面数据（PE/PB/ROE）...[/yellow]")
-            adapter = StockMCPAdapter(self.settings)
-            fin_frames = []
-            symbols = raw["symbol"].unique()
-            for i, symbol in enumerate(symbols, 1):
-                print(f"  [{i}/{len(symbols)}] {symbol}")
-                try:
-                    fin = adapter.get_financial_data(symbol, start_date, end_date)
-                    if not fin.empty:
-                        fin_frames.append(fin)
-                except Exception as e:
-                    print(f"  [WARN] {symbol} 基本面数据获取失败: {e}")
-            if fin_frames:
-                financial = pd.concat(fin_frames, ignore_index=True)
-                raw = merge_fundamental_to_daily(raw, financial)
+            symbols = raw["symbol"].unique().tolist()
+            cached_fundamental = self.store.load_fundamental_data(symbols, start_date, end_date)
+            cached_symbols = set(cached_fundamental["symbol"].unique()) if not cached_fundamental.empty else set()
+            missing_symbols = [s for s in symbols if s not in cached_symbols]
+
+            if missing_symbols:
+                adapter = StockMCPAdapter(self.settings)
+                fetched_frames = []
+                for i, symbol in enumerate(missing_symbols, 1):
+                    print(f"  [{i}/{len(missing_symbols)}] {symbol} 从 iFind 拉取")
+                    try:
+                        fin = adapter.get_financial_data(symbol, start_date, end_date)
+                        if not fin.empty:
+                            fetched_frames.append(fin)
+                    except Exception as e:
+                        print(f"  [WARN] {symbol} 基本面数据获取失败: {e}")
+                if fetched_frames:
+                    fetched = pd.concat(fetched_frames, ignore_index=True)
+                    self.store.save_fundamental_data(fetched)
+                    cached_fundamental = pd.concat([cached_fundamental, fetched], ignore_index=True)
+            else:
+                print(f"[green]已命中缓存：{len(cached_symbols)} 只股票的基本面数据[/green]")
+
+            if not cached_fundamental.empty:
+                raw = merge_fundamental_to_daily(raw, cached_fundamental)
 
         # Optionally merge macro data
         if include_macro:
@@ -110,10 +121,17 @@ class FeatureBuilder:
                 "m2_yoy": "中国M2同比",
             }
             for col_name, query in macro_indicators.items():
-                print(f"  获取 {col_name}: {query}")
+                cached_macro = self.store.load_macro_data(col_name, start_date, end_date)
+                if not cached_macro.empty:
+                    print(f"[green]  {col_name}: 已命中缓存 ({len(cached_macro)} 条)[/green]")
+                    raw = merge_macro_to_daily(raw, cached_macro, col_name)
+                    continue
+
+                print(f"  从 iFind 拉取 {col_name}: {query}")
                 try:
                     macro = edb.get_macro_data(query, start_date, end_date)
                     if not macro.empty:
+                        self.store.save_macro_data(macro, col_name)
                         raw = merge_macro_to_daily(raw, macro, col_name)
                 except Exception as e:
                     print(f"  [WARN] {col_name} 宏观数据获取失败: {e}")

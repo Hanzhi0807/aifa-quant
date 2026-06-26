@@ -29,9 +29,13 @@
 
 4. 更新本地数据（需要 iFind MCP 配额）：
    ```bash
-   python -m aifa_quant.cli.main data-update --start 20230101 --end 20241231
+   # 日线行情 + 基本面 + 宏观数据一次性缓存
+   python -m aifa_quant.cli.main data-update \
+     --symbol-file data_store/csi300_symbols.txt \
+     --start 20230101 --end 20241231 \
+     --workers 5 --fundamental --macro
    ```
-   如果 iFind MCP 配额已耗尽，可直接下载 [Release v0.3.0-data-csi300](https://github.com/ivyzhi0807/aifa-quant/releases/tag/v0.3.0-data-csi300) 并用 `python scripts/import_source_data.py <csv.gz>` 导入。
+   如果 iFind MCP 配额已耗尽，可直接下载 [Release v0.3.0-data-csi300](https://github.com/ivyzhi0807/aifa-quant/releases/tag/v0.3.0-data-csi300) 并用 `python scripts/import_source_data.py data_store/` 导入。
 
 5. 训练选股模型：
    ```bash
