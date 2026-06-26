@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-06-26
+
+### Added
+- Alpha101/191 风格因子库（`features/alpha_factors.py`），注册 20+ 因子并默认参与特征构建。
+- LightGBM LambdaRank 排序模型（`models/lgb_lambdarank.py`），训练时 `--model-type lambdarank` 切换。
+- Ensemble 模型集成（`models/ensemble.py`），支持 weighted_mean / mean / median / rank_mean，回测时 `--ensemble PATH` 加载。
+- SHAP 可解释性分析（`analysis/shap_explainer.py`），CLI `explain` 命令输出 summary plot 与特征重要性。
+- 免费情绪因子（`data/adapters/sentiment_free_adapter.py`）：东方财富千股千评 via AkShare，`--sentiment-source free`。
+- Tushare Pro 数据源适配器（`data/adapters/tushare_adapter.py`），CLI `--source tushare`。
+- 策略模板市场（`strategy/templates.py`）：default / aggressive / conservative / momentum，CLI `list-templates` 与 `--template`。
+- Web 因子商店与回测重跑（`web/api/routers/factorStore.ts`, `backtestRunner.ts`）。
+- 每周 AI 选股报告自动化（`research/weekly_picker.py`），CLI `weekly-report`。
+- MkDocs 文档站（`mkdocs.yml`、`docs/index.md`），`mkdocs serve` / `mkdocs build`。
+
+### Changed
+- CLI `train` 新增 `--model-type {binary,lambdarank}`、`--template` 参数。
+- CLI `backtest` 新增 `--template`、`--dropout-threshold`、`--ensemble`、`--strategy` 参数；基准数据源支持 akshare / tushare / ifind。
+- CLI `data-update` `--source` 支持 `akshare / tushare / ifind`。
+- `TopKDropoutStrategy.generate_signals` 改为向量化实现，新增 `dropout_threshold` 配置。
+
 ## [0.1.0] - 2026-06-25
 
 ### Added

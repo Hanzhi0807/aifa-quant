@@ -7,6 +7,7 @@ from .factor_analysis import (
     plot_ic_distribution,
     plot_quantile_returns,
 )
+from .shap_explainer import explain_model
 
 __all__ = [
     "compute_ic_summary",
@@ -14,4 +15,5 @@ __all__ = [
     "compute_factor_decay",
     "plot_ic_distribution",
     "plot_quantile_returns",
+    "explain_model",
 ]

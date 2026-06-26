@@ -1,0 +1,20 @@
+site_name: AifaQuant Docs
+site_description: A股 AI 量化研究框架文档
+site_author: ivyzhi0807
+
+theme:
+  name: readthedocs
+  highlightjs: true
+
+nav:
+  - 首页: index.md
+  - 数据源与集成: DATA.md
+  - 指标说明: METRICS.md
+  - 模拟交易: PAPER_TRADING.md
+  - Web 站点任务: WEBSITE_TASK.md
+  - 集成路线图: INTEGRATION_ROADMAP.md
+  - 路线图: ROADMAP.md
+
+markdown_extensions:
+  - toc:
+      permalink: true

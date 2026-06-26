@@ -3,8 +3,9 @@
 import pandas as pd
 
 from ..config.settings import Settings
-from ..data.adapters import EDBMCPAdapter, StockMCPAdapter
+from ..data.adapters import EDBMCPAdapter, StockMCPAdapter, build_free_sentiment_features
 from ..data.storage import DuckDBStore
+from .alpha_factors import compute_alpha_factors, list_alpha_factors
 from .fundamental import merge_fundamental_to_daily
 from .macro import merge_macro_to_daily
 from .selection import drop_highly_correlated
@@ -59,6 +60,9 @@ class FeatureBuilder:
         include_fundamental: bool = True,
         include_macro: bool = True,
         include_sentiment: bool = True,
+        sentiment_source: str = "ifind",
+        include_alpha: bool = True,
+        alpha_factors: list[str] | None = None,
         corr_threshold: float | None = 0.95,
         cache_only: bool = False,
         prediction_mode: bool = False,
@@ -72,6 +76,9 @@ class FeatureBuilder:
             include_macro: Whether to merge macroeconomic indicators.
             include_sentiment: Whether to merge news sentiment factors from iFind.
             cache_only: If True, only use cached fundamental/macro data; do not call iFind for missing data.
+            sentiment_source: "ifind" (default) or "free" (Eastmoney via AkShare).
+            include_alpha: Whether to include Alpha101/191 style factors.
+            alpha_factors: Optional subset of alpha factor names; None means all registered.
             corr_threshold: If not None, drop one feature from each highly correlated pair.
         """
         print("[yellow]正在从 DuckDB 加载原始日线数据...[/yellow]")
@@ -150,22 +157,30 @@ class FeatureBuilder:
 
         # Optionally merge sentiment data
         if include_sentiment:
-            print("[yellow]正在获取情绪因子（新闻舆情）...[/yellow]")
+            print(f"[yellow]正在获取情绪因子（来源：{sentiment_source}）...[/yellow]")
             try:
                 symbols = raw["symbol"].unique()
-                name_map = (
-                    raw.drop_duplicates("symbol").set_index("symbol")["name"].to_dict()
-                    if "name" in raw.columns
-                    else None
-                )
-                sentiment = build_sentiment_features(
-                    symbols.tolist(),
-                    name_map=name_map,
-                    start_date=start_date,
-                    end_date=end_date,
-                    settings=self.settings,
-                    cache_only=cache_only,
-                )
+                if sentiment_source == "free":
+                    sentiment = build_free_sentiment_features(
+                        symbols.tolist(),
+                        start_date=start_date,
+                        end_date=end_date,
+                        settings=self.settings,
+                    )
+                else:
+                    name_map = (
+                        raw.drop_duplicates("symbol").set_index("symbol")["name"].to_dict()
+                        if "name" in raw.columns
+                        else None
+                    )
+                    sentiment = build_sentiment_features(
+                        symbols.tolist(),
+                        name_map=name_map,
+                        start_date=start_date,
+                        end_date=end_date,
+                        settings=self.settings,
+                        cache_only=cache_only,
+                    )
                 if not sentiment.empty:
                     raw = merge_sentiment_to_daily(raw, sentiment)
                     print(f"[green]已合并情绪因子，覆盖 {sentiment['symbol'].nunique()} 只股票[/green]")
@@ -180,6 +195,11 @@ class FeatureBuilder:
             frames.append(feat)
 
         df = pd.concat(frames, ignore_index=True)
+
+        if include_alpha:
+            print(f"[yellow]正在构建 Alpha101/191 因子（{len(alpha_factors or list_alpha_factors())} 个）...[/yellow]")
+            df = compute_alpha_factors(df, selected=alpha_factors)
+
         print(f"[green]特征矩阵形状: {df.shape}[/green]")
 
         if not prediction_mode:

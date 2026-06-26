@@ -64,3 +64,10 @@ models_cache/
 # Kimi client deployment artifacts
 Kimi_Agent_方案评估与搭建/
 Kimi_Agent_方案评估与搭建.zip
+
+# MkDocs build output
+site/
+.cache/
+
+# Review / scratch documents
+aifa_quant_code_review.md

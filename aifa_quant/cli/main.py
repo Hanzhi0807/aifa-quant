@@ -8,18 +8,25 @@ from rich import print
 from rich.console import Console
 from rich.table import Table
 
-from ..analysis import compute_factor_decay, compute_ic_summary, compute_quantile_returns
+from ..analysis import (
+    compute_factor_decay,
+    compute_ic_summary,
+    compute_quantile_returns,
+    explain_model,
+)
 from ..backtest import BacktestEngine, compute_metrics
 from ..config.settings import Settings
-from ..data.adapters import AkShareAdapter, IndexMCPAdapter, StockMCPAdapter
+from ..data.adapters import AkShareAdapter, IndexMCPAdapter, StockMCPAdapter, TushareAdapter
 from ..data.pipeline import DailyUpdatePipeline
 from ..data.storage import DuckDBStore
 from ..features import FeatureBuilder
-from ..models import LGBRankerModel
+from ..models import EnsembleModel, LGBLambdaRankModel, LGBRankerModel
 from ..models.registry import ModelRegistry
 from ..models.rolling_trainer import RollingTrainer
 from ..paper_trading import PaperTradingEngine
+from ..research import generate_weekly_report
 from ..strategy import TopKDropoutStrategy
+from ..strategy.templates import get_template, list_templates
 
 app = typer.Typer(help="AifaQuant - A股 AI 量化研究框架")
 console = Console()
@@ -83,7 +90,7 @@ def data_update(
         False, "--skip-daily", help="Skip daily quote download (useful when only updating fundamental/macro)"
     ),
     source: str = typer.Option(
-        "akshare", "--source", help="Data source: akshare (default) or ifind"
+        "akshare", "--source", help="Data source: akshare (default), tushare, or ifind"
     ),
     yes: bool = typer.Option(False, "--yes", help="Skip iFind usage confirmation"),
 ):
@@ -105,6 +112,9 @@ def data_update(
             "全部A股": "A股上市股票列表",
         }
         query = universe_queries.get(universe, universe)
+    elif source == "tushare":
+        # Tushare uses index ts_code like 000300.SH
+        query = universe if universe.endswith(".SH") or universe.endswith(".SZ") else "000300.SH"
     else:
         query = universe
 
@@ -149,8 +159,17 @@ def backtest(
     start: str = typer.Option("20240101", "--start", help="Backtest start date YYYYMMDD"),
     end: str = typer.Option("20241231", "--end", help="Backtest end date YYYYMMDD"),
     model_name: str = typer.Option("lgb_stock_selector", "--model", help="Model artifact name"),
+    strategy_name: str = typer.Option(
+        "topk_dropout", "--strategy", help="Strategy name: topk_dropout (default)"
+    ),
+    template: str | None = typer.Option(
+        None, "--template", help="Strategy template name (overrides top_k/freq/dropout)"
+    ),
     top_k: int = typer.Option(3, "--top-k", help="Number of stocks to hold"),
     freq: int = typer.Option(5, "--freq", help="Rebalance frequency in days"),
+    dropout_threshold: int | None = typer.Option(
+        None, "--dropout-threshold", help="Drop held stock if rank exceeds this"
+    ),
     initial_cash: float = typer.Option(1_000_000.0, "--cash", help="Initial capital"),
     rolling: bool = typer.Option(False, "--rolling", help="Use rolling window training to avoid look-ahead bias"),
     benchmark: str = typer.Option("000300.SH", "--benchmark", help="Benchmark index symbol"),
@@ -170,11 +189,22 @@ def backtest(
         False, "--cache-only", help="Only use cached fundamental/macro data; do not call iFind for missing data"
     ),
     source: str = typer.Option(
-        "akshare", "--source", help="Data source for benchmark index: akshare (default) or ifind"
+        "akshare", "--source", help="Data source: akshare (default), tushare, or ifind"
+    ),
+    ensemble_path: str | None = typer.Option(
+        None, "--ensemble", help="Path to ensemble config JSON; overrides single model"
     ),
     yes: bool = typer.Option(False, "--yes", help="Skip iFind usage confirmation"),
 ):
     """Run backtest using trained model and TopK-Dropout strategy."""
+    if template:
+        tmpl = get_template(template)
+        top_k = tmpl.top_k
+        freq = tmpl.rebalance_freq
+        if dropout_threshold is None:
+            dropout_threshold = tmpl.dropout_threshold
+        print(f"[cyan]应用策略模板 {template}: top_k={top_k}, freq={freq}, dropout={dropout_threshold}[/cyan]")
+
     ifind_used = source == "ifind" or (
         (include_fundamental or include_macro or include_sentiment) and not cache_only
     )
@@ -217,15 +247,20 @@ def backtest(
         preds = trainer.predict_rolling(features, rebalance_dates=rebalance_dates)
         features = features.merge(preds, on=["symbol", "trade_date"], how="inner")
     else:
-        # Load pre-trained model
-        registry = ModelRegistry(settings)
-        model_path = registry.path(model_name)
-        if not model_path.exists():
-            print(f"[red]模型不存在: {model_path}，请先运行 train 命令或使用 --rolling[/red]")
-            raise typer.Exit(code=1)
-        model = LGBRankerModel()
-        model.load(str(model_path))
-        print(f"[green]已加载模型: {model_path}[/green]")
+        # Load pre-trained model or ensemble
+        if ensemble_path:
+            registry_dir = settings.models_dir_path
+            model = EnsembleModel.from_config(ensemble_path, registry_dir=registry_dir)
+            print(f"[green]已加载 Ensemble: {ensemble_path}[/green]")
+        else:
+            registry = ModelRegistry(settings)
+            model_path = registry.path(model_name)
+            if not model_path.exists():
+                print(f"[red]模型不存在: {model_path}，请先运行 train 命令、使用 --ensemble 或 --rolling[/red]")
+                raise typer.Exit(code=1)
+            model = LGBRankerModel()
+            model.load(str(model_path))
+            print(f"[green]已加载模型: {model_path}[/green]")
         pred_df = features.dropna(subset=feature_cols).copy()
         pred_df["pred_score"] = model.predict(pred_df[feature_cols])
         features = pred_df
@@ -235,10 +270,17 @@ def backtest(
     symbols = features["symbol"].unique().tolist()
     quotes = store.load_daily_quotes(symbols, start_date=start, end_date=end)
 
-    # Run backtest
-    strategy = TopKDropoutStrategy(top_k=top_k, rebalance_freq=freq)
+    # Select strategy
+    if strategy_name == "topk_dropout":
+        strategy = TopKDropoutStrategy(top_k=top_k, rebalance_freq=freq, dropout_threshold=dropout_threshold)
+    else:
+        print(f"[red]未知策略: {strategy_name}[/red]")
+        raise typer.Exit(code=1)
+
+    # Run backtest.  Model object is used only as metadata fallback;
+    # pred_score already exists in features.
     engine = BacktestEngine(initial_cash=initial_cash, rebalance_freq=freq)
-    equity = engine.run(quotes, features, LGBRankerModel(), strategy, start_date=start, end_date=end)
+    equity = engine.run(quotes, features, model, strategy, start_date=start, end_date=end)
 
     if equity.empty:
         print("[red]回测未产生结果[/red]")
@@ -249,6 +291,8 @@ def backtest(
     try:
         if source == "akshare":
             index_adapter = AkShareAdapter(settings)
+        elif source == "tushare":
+            index_adapter = TushareAdapter(settings)
         else:
             index_adapter = IndexMCPAdapter(settings)
         bench_df = index_adapter.get_daily_data(benchmark, start_date=start, end_date=end)
@@ -449,6 +493,16 @@ def train(
     end: str = typer.Option("20241231", "--end", help="Training end date YYYYMMDD"),
     horizon: int = typer.Option(5, "--horizon", help="Forecast horizon in days"),
     model_name: str = typer.Option("lgb_stock_selector", "--name", help="Model artifact name"),
+    model_type: str = typer.Option(
+        "binary", "--model-type", help="Model type: binary (default) or lambdarank"
+    ),
+    template: str | None = typer.Option(
+        None, "--template", help="Strategy template name (overrides horizon/model_type)"
+    ),
+    include_fundamental: bool = typer.Option(
+        True, "--fundamental/--no-fundamental", help="Include fundamental factors (PE/PB/ROE)"
+    ),
+    include_macro: bool = typer.Option(True, "--macro/--no-macro", help="Include macro factors (CPI/PMI/M2)"),
     include_sentiment: bool = typer.Option(
         True, "--sentiment/--no-sentiment", help="Include news sentiment factors"
     ),
@@ -463,11 +517,21 @@ def train(
     yes: bool = typer.Option(False, "--yes", help="Skip iFind usage confirmation"),
 ):
     """Train a LightGBM stock selection model."""
-    # train defaults include_fundamental=True, include_macro=True
-    if not cache_only or include_sentiment:
+    if template:
+        tmpl = get_template(template)
+        horizon = tmpl.horizon
+        model_type = tmpl.model_type
+        print(f"[cyan]应用策略模板 {template}: horizon={horizon}, model_type={model_type}[/cyan]")
+
+    ifind_used = (
+        (include_fundamental or include_macro) and not cache_only
+    ) or include_sentiment
+    if ifind_used:
         action_parts = []
-        if not cache_only:
-            action_parts.append("fundamental/macro（如缓存缺失）")
+        if include_fundamental and not cache_only:
+            action_parts.append("fundamental")
+        if include_macro and not cache_only:
+            action_parts.append("macro")
         if include_sentiment:
             action_parts.append("sentiment")
         _confirm_ifind_usage("train " + ", ".join(action_parts), yes)
@@ -478,6 +542,8 @@ def train(
         start_date=start,
         end_date=end,
         label_horizon=horizon,
+        include_fundamental=include_fundamental,
+        include_macro=include_macro,
         include_sentiment=include_sentiment,
         corr_threshold=corr_threshold,
         cache_only=cache_only,
@@ -487,15 +553,30 @@ def train(
         raise typer.Exit(code=1)
 
     features = builder.feature_columns(df)
-    # Drop rows with NaN in features or label
-    df_clean = df.dropna(subset=features + ["label_binary"])
+    df_clean = df.dropna(subset=features + ["label_binary", "label_return"])
     X = df_clean[features]
-    y = df_clean["label_binary"]
 
-    print(f"[yellow]训练样本数: {len(df_clean)}, 特征数: {len(features)}[/yellow]")
+    if model_type == "lambdarank":
+        print(f"[yellow]训练 LambdaRank 模型，样本数: {len(df_clean)}, 特征数: {len(features)}[/yellow]")
+        # Bin future returns within each cross-section into 5 ordinal ranks.
+        def _bin_returns(x: pd.Series) -> pd.Series:
+            if len(x) < 5:
+                return pd.Series(0, index=x.index)
+            return pd.qcut(x, q=5, labels=False, duplicates="drop")
 
-    model = LGBRankerModel()
-    model.fit(X, y, features)
+        df_clean["label_rank"] = df_clean.groupby("trade_date")["label_return"].transform(_bin_returns).astype(int)
+        y = df_clean["label_rank"]
+        groups = df_clean["trade_date"]
+        model = LGBLambdaRankModel()
+        model.fit(X, y, features, groups=groups)
+    elif model_type == "binary":
+        print(f"[yellow]训练二分类模型，样本数: {len(df_clean)}, 特征数: {len(features)}[/yellow]")
+        y = df_clean["label_binary"]
+        model = LGBRankerModel()
+        model.fit(X, y, features)
+    else:
+        print(f"[red]未知模型类型: {model_type}[/red]")
+        raise typer.Exit(code=1)
 
     registry = ModelRegistry(settings)
     model_path = registry.path(model_name)
@@ -505,6 +586,119 @@ def train(
     print("[bold]Top 10 重要特征:[/bold]")
     for feat, score in model.feature_importance.head(10).items():
         print(f"  {feat}: {score:.0f}")
+
+
+@app.command()
+def weekly_report(
+    model_name: str = typer.Option("lgb_stock_selector", "--model", help="Model artifact name"),
+    top_k: int = typer.Option(10, "--top-k", help="Number of picks"),
+    lookback_days: int = typer.Option(60, "--lookback", help="Feature lookback days"),
+    benchmark: str = typer.Option("000300.SH", "--benchmark", help="Benchmark index"),
+    output_dir: str | None = typer.Option(None, "--output", help="Output directory"),
+    cache_only: bool = typer.Option(True, "--cache-only", help="Use cached data only"),
+    yes: bool = typer.Option(False, "--yes", help="Skip iFind usage confirmation"),
+):
+    """Generate weekly AI stock pick report."""
+    if not cache_only:
+        _confirm_ifind_usage("weekly-report fundamental/macro（如缓存缺失）", yes)
+    try:
+        path = generate_weekly_report(
+            model_name=model_name,
+            top_k=top_k,
+            lookback_days=lookback_days,
+            benchmark=benchmark,
+            output_dir=output_dir,
+            cache_only=cache_only,
+        )
+        print(f"[green]选股报告已生成: {path}[/green]")
+    except Exception as e:
+        print(f"[red]生成报告失败: {e}[/red]")
+        raise typer.Exit(code=1)
+
+
+@app.command()
+def explain(
+    model_name: str = typer.Option("lgb_stock_selector", "--model", help="Model artifact name"),
+    start: str = typer.Option("20240101", "--start", help="Feature start date YYYYMMDD"),
+    end: str = typer.Option("20241231", "--end", help="Feature end date YYYYMMDD"),
+    max_samples: int = typer.Option(500, "--max-samples", help="Max rows for TreeSHAP"),
+    output_dir: str = typer.Option("./data_store/reports/shap", "--output", help="Directory to save SHAP outputs"),
+    include_sentiment: bool = typer.Option(
+        True, "--sentiment/--no-sentiment", help="Include news sentiment factors"
+    ),
+    corr_threshold: float = typer.Option(0.95, "--corr-threshold", help="Drop highly correlated features"),
+    cache_only: bool = typer.Option(
+        False, "--cache-only", help="Only use cached fundamental/macro data"
+    ),
+    yes: bool = typer.Option(False, "--yes", help="Skip iFind usage confirmation"),
+):
+    """Explain model predictions using SHAP."""
+    ifind_used = not cache_only or include_sentiment
+    if ifind_used:
+        action_parts = []
+        if not cache_only:
+            action_parts.append("fundamental/macro（如缓存缺失）")
+        if include_sentiment:
+            action_parts.append("sentiment")
+        _confirm_ifind_usage("explain " + ", ".join(action_parts), yes)
+
+    settings = Settings()
+    registry = ModelRegistry(settings)
+    model_path = registry.path(model_name)
+    if not model_path.exists():
+        print(f"[red]模型不存在: {model_path}[/red]")
+        raise typer.Exit(code=1)
+
+    builder = FeatureBuilder(settings)
+    df = builder.build_features(
+        start_date=start,
+        end_date=end,
+        include_fundamental=True,
+        include_macro=True,
+        include_sentiment=include_sentiment,
+        corr_threshold=corr_threshold,
+        cache_only=cache_only,
+        prediction_mode=True,
+    )
+    if df.empty:
+        print("[red]没有可用特征数据[/red]")
+        raise typer.Exit(code=1)
+
+    features = builder.feature_columns(df)
+    df_clean = df.dropna(subset=features)
+    if df_clean.empty:
+        print("[red]没有完整特征的行[/red]")
+        raise typer.Exit(code=1)
+
+    print(f"[yellow]使用 {min(max_samples, len(df_clean))}/{len(df_clean)} 条样本进行 SHAP 解释...[/yellow]")
+    explain_model(
+        str(model_path),
+        df_clean,
+        feature_names=features,
+        max_samples=max_samples,
+        output_dir=output_dir,
+    )
+    print(f"[green]SHAP 解释结果已保存到 {output_dir}[/green]")
+
+
+@app.command("list-templates")
+def strategy_templates():
+    """List available strategy templates."""
+    table = Table(title="策略模板")
+    table.add_column("名称", style="cyan")
+    table.add_column("描述", style="magenta")
+    table.add_column("TopK", style="green")
+    table.add_column("调仓周期", style="green")
+    table.add_column("模型", style="green")
+    for template in list_templates():
+        table.add_row(
+            template.name,
+            template.description,
+            str(template.top_k),
+            str(template.rebalance_freq),
+            template.model_type,
+        )
+    console.print(table)
 
 
 # ------------------------------------------------------------------

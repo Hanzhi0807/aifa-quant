@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     ifind_index_mcp_url: str = ""
     ifind_index_mcp_token: str = ""
 
+    # Third-party data source tokens
+    tushare_token: str = ""
+
     # Project paths
     data_dir: str = "./data_store"
     duckdb_path: str = "./data_store/aifa_quant.duckdb"

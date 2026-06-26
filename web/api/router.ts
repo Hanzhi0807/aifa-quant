@@ -6,6 +6,8 @@ import { equityCurveRouter } from "./routers/equityCurve";
 import { metricsRouter } from "./routers/metrics";
 import { modelRouter } from "./routers/model";
 import { factorRouter } from "./routers/factor";
+import { factorStoreRouter } from "./routers/factorStore";
+import { backtestRunnerRouter } from "./routers/backtestRunner";
 
 export const appRouter = createRouter({
   ping: publicQuery.query(() => ({ ok: true, ts: Date.now() })),
@@ -16,6 +18,8 @@ export const appRouter = createRouter({
   metrics: metricsRouter,
   model: modelRouter,
   factor: factorRouter,
+  factorStore: factorStoreRouter,
+  backtestRunner: backtestRunnerRouter,
 });
 
 export type AppRouter = typeof appRouter;

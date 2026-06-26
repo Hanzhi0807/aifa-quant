@@ -6,12 +6,15 @@
 
 AifaQuant 是一个本地优先的 **A股 AI 量化研究与回测框架**，覆盖数据获取、因子工程、模型训练、策略回测到模拟交易的完整闭环。
 
-- **数据源**：默认 [AkShare](https://www.akshare.xyz/)（免费），日线/指数/成分股无需 token；基本面/宏观/情绪仍走同花顺 iFind MCP。
-- **存储**：本地 DuckDB，日线、基本面、宏观数据一次缓存，离线复用。
-- **模型**：LightGBM 二分类选股，输出上涨概率。
-- **策略**：TopK-Dropout 轮动。
+- **数据源**：默认 [AkShare](https://www.akshare.xyz/)（免费）；可选 [Tushare](https://tushare.pro/)（需 token）；基本面/宏观/情绪仍走同花顺 iFind MCP。
+- **存储**：本地 DuckDB，日线、基本面、宏观、情绪数据一次缓存，离线复用。
+- **特征工程**：技术指标 + Alpha101/191 风格因子 + 基本面（PE/PB/ROE）+ 宏观（CPI/PMI/M2）+ 情绪（iFind / 东方财富免费）+ 高相关性剔除。
+- **模型**：LightGBM 二分类 / LambdaRank 排序 / Ensemble 模型集成。
+- **可解释性**：SHAP 特征重要性分析。
+- **策略**：TopK-Dropout 轮动，支持策略模板（default / aggressive / conservative / momentum）。
 - **回测**：自定义 A股规则引擎（T+1、涨跌停、100 股整数手、佣金、印花税）。
 - **模拟交易**：基于训练好的模型每日生成信号，用 `SimulatedBroker` 虚拟成交，状态持久化到 DuckDB。
+- **自动化**：每周 AI 选股报告自动生成。
 
 > ⚠️ 本项目处于研究与框架验证阶段，回测和模拟交易结果**不代表实盘表现**。
 
@@ -72,6 +75,16 @@ python -m aifa_quant.cli.main data-update \
   --fundamental --macro
 ```
 
+**使用 Tushare Pro 下载（需 token）**
+
+```bash
+# .env 中配置 TUSHARE_TOKEN=...
+python -m aifa_quant.cli.main data-update \
+  --source tushare \
+  --universe 000300.SH \
+  --start 20230101 --end 20241231
+```
+
 **或强制走 iFind MCP 下载（需要 token 和额度）**
 
 ```bash
@@ -96,15 +109,26 @@ python -m aifa_quant.cli.main db-info
 ## 完整工作流
 
 ```bash
-# 1. 训练选股模型
+# 1. 训练选股模型（二分类 / LambdaRank）
 python -m aifa_quant.cli.main train \
   --start 20230101 --end 20241231 \
   --no-sentiment --cache-only
+
+# 或使用策略模板训练 LambdaRank
+python -m aifa_quant.cli.main train \
+  --start 20230101 --end 20241231 \
+  --template conservative --no-sentiment --cache-only
 
 # 2. 滚动回测（带沪深 300 基准）
 python -m aifa_quant.cli.main backtest \
   --start 20240101 --end 20241231 \
   --rolling --benchmark 000300.SH \
+  --top-k 5 --freq 5 --no-sentiment --cache-only
+
+# 或使用 Ensemble 模型回测
+python -m aifa_quant.cli.main backtest \
+  --start 20240101 --end 20241231 \
+  --ensemble data_store/models/ensemble_config.json \
   --top-k 5 --freq 5 --no-sentiment --cache-only
 
 # 3. 初始化模拟账户
@@ -118,6 +142,14 @@ python -m aifa_quant.cli.main paper-trade run
 
 # 6. 查看账户状态
 python -m aifa_quant.cli.main paper-trade status
+
+# 7. 生成每周选股报告
+python -m aifa_quant.cli.main weekly-report --cache-only
+
+# 8. SHAP 模型解释
+python -m aifa_quant.cli.main explain \
+  --start 20240101 --end 20241231 \
+  --output data_store/reports/shap --cache-only
 ```
 
 ---
@@ -137,16 +169,22 @@ python -m aifa_quant.cli.main paper-trade status
 | `python -m aifa_quant.cli.main paper-trade run` | 执行模拟交易 |
 | `python -m aifa_quant.cli.main paper-trade status` | 查看模拟账户 |
 | `python -m aifa_quant.cli.main factor-analysis --start 20230101 --end 20241231` | 因子有效性分析（IC/RankIC/ICIR/分层/衰减） |
+| `python -m aifa_quant.cli.main weekly-report --cache-only` | 生成每周 AI 选股报告 |
+| `python -m aifa_quant.cli.main explain --output data_store/reports/shap --cache-only` | SHAP 模型可解释性分析 |
+| `python -m aifa_quant.cli.main list-templates` | 查看策略模板 |
 
 常用参数：
 
 - `--no-sentiment`：关闭新闻情绪因子（当前 iFind news MCP 配额紧张，建议关闭）。
-- `--source {akshare,ifind}`：数据源，默认 `akshare`。
+- `--source {akshare,tushare,ifind}`：数据源，默认 `akshare`。
 - `--cache-only`：只使用 DuckDB 缓存，不调用 iFind。
 - `--yes`：跳过 iFind 使用确认。
 - `--rolling`：滚动窗口训练，避免未来函数。
 - `--top-k N`：持仓数量。
 - `--freq N`：再平衡周期（天）。
+- `--model-type {binary,lambdarank}`：训练模型类型。
+- `--ensemble PATH`：使用 Ensemble 配置文件回测。
+- `--template NAME`：使用策略模板覆盖参数。
 
 ---
 
@@ -161,9 +199,11 @@ aifa_quant/
 │   │   ├── adapters/         # iFind MCP 适配器（stock / index / macro / news）
 │   │   ├── pipeline/         # 增量更新 Pipeline
 │   │   └── storage/          # DuckDB 封装
-│   ├── features/             # 因子工程（技术 / 基本面 / 宏观 / 情绪 / 特征筛选）
-│   ├── models/               # LightGBM、模型注册表、滚动训练器
-│   ├── strategy/             # TopK-Dropout 策略
+│   ├── features/             # 因子工程（技术 / Alpha101 / 基本面 / 宏观 / 情绪 / 特征筛选）
+│   ├── models/               # LightGBM 二分类 / LambdaRank / Ensemble / 注册表 / 滚动训练器
+│   ├── strategy/             # TopK-Dropout 策略与策略模板
+│   ├── analysis/             # 因子有效性分析 / SHAP 可解释性
+│   ├── research/             # 每周选股报告
 │   ├── backtest/             # A股规则回测引擎 + 绩效指标
 │   ├── execution/            # 模拟/实盘交易执行接口
 │   ├── paper_trading/        # 模拟交易引擎
@@ -239,6 +279,95 @@ NODE_ENV=production node dist/boot.js
 
 ---
 
+## Alpha101/191 因子库
+
+`aifa_quant/features/alpha_factors.py` 已注册 20+ 个 Alpha101/191 风格因子，特征构建时默认启用：
+
+```bash
+python -m aifa_quant.cli.main factor-analysis --start 20230101 --end 20241231
+```
+
+可通过 `--corr-threshold 0.95` 自动剔除高相关性因子。
+
+---
+
+## LambdaRank 排序模型与 Ensemble
+
+训练时切换为 LambdaRank（按截面收益排序学习）：
+
+```bash
+python -m aifa_quant.cli.main train \
+  --start 20230101 --end 20241231 \
+  --model-type lambdarank --name lgb_ranker
+```
+
+多个模型可用 JSON 配置文件集成 Ensemble：
+
+```json
+{
+  "method": "weighted_mean",
+  "models": [
+    {"name": "lgb_binary", "weight": 0.6},
+    {"name": "lgb_ranker", "weight": 0.4}
+  ]
+}
+```
+
+```bash
+python -m aifa_quant.cli.main backtest \
+  --start 20240101 --end 20241231 \
+  --ensemble data_store/models/ensemble_config.json
+```
+
+---
+
+## SHAP 可解释性
+
+对训练好的模型做 TreeSHAP 分析，输出 summary plot 与特征重要性 CSV：
+
+```bash
+python -m aifa_quant.cli.main explain \
+  --start 20240101 --end 20241231 \
+  --output data_store/reports/shap --cache-only
+```
+
+---
+
+## 策略模板
+
+内置 `default`、`aggressive`、`conservative`、`momentum` 四套模板，一键覆盖 top_k / freq / horizon / model_type：
+
+```bash
+python -m aifa_quant.cli.main list-templates
+python -m aifa_quant.cli.main train --template conservative --cache-only
+python -m aifa_quant.cli.main backtest --template momentum --cache-only
+```
+
+---
+
+## 每周 AI 选股报告
+
+基于最新训练模型生成 Markdown 选股报告：
+
+```bash
+python -m aifa_quant.cli.main weekly-report --cache-only
+```
+
+报告保存至 `data_store/reports/weekly_picks_YYYYMMDD.md`。
+
+---
+
+## MkDocs 文档站
+
+文档使用 MkDocs 构建，主题 `readthedocs`：
+
+```bash
+mkdocs serve   # 本地预览
+mkdocs build   # 输出到 site/
+```
+
+---
+
 ## Docker 一键启动
 
 已提供 `Dockerfile` 与 `docker-compose.yml`，把 Python CLI 与 Web 服务打包在一起：
@@ -274,7 +403,7 @@ docker compose up --build -d
 ## 注意事项
 
 - **iFind MCP 额度**：当前 news/stock 配额紧张，建议日常回测/训练/模拟交易都加 `--cache-only`，避免意外调用。
-- **情绪因子**：默认关闭；等 iFind news MCP 恢复后再尝试 `--sentiment`。
+- **情绪因子**：默认关闭；可使用 `--sentiment-source free` 通过东方财富/AkShare 获取免费情绪数据。
 - **GitHub Actions**：当前账号被禁用 Actions，CI 徽章不会自动更新。
-- **成分股完整性**：沪深 300 成分股通过新浪财经抓取，去重后约 288 只，非完整 300 只。
-- **数据与模型不提交 Git**：`data_store/`、`.env`、模型文件已加入 `.gitignore`。
+- **成分股完整性**：沪深 300 成分股通过数据源接口抓取，具体数量取决于源。
+- **数据与模型不提交 Git**：`data_store/`、`.env`、模型文件、`site/` 已加入 `.gitignore`。

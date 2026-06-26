@@ -9,7 +9,13 @@ class BaseModel(ABC):
     """Abstract base class for predictive models."""
 
     @abstractmethod
-    def fit(self, X: pd.DataFrame, y: pd.Series, feature_names: list[str]) -> None:
+    def fit(
+        self,
+        X: pd.DataFrame,
+        y: pd.Series,
+        feature_names: list[str],
+        **kwargs,
+    ) -> None:
         """Train the model."""
         ...
 

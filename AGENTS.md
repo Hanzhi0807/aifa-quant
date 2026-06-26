@@ -12,7 +12,7 @@
 ## 2. 必知环境
 
 - **Python**：使用仓库根目录的 venv：`../.venv/Scripts/python`（Windows）。
-- **CLI 入口**：`python -m aifa_quant.cli.main <command>`。
+- **CLI 入口**：`python -m aifa_quant.cli.main <command>`；也可用 `aifa <command>`（安装后）。
 - **DuckDB**：`data_store/aifa_quant.duckdb`，thread-local 连接，禁止跨线程共享连接。
 - **.env**：包含 iFind MCP token，**已加入 .gitignore，绝对不要提交**。
 - **data_store/**：数据和模型目录，**已加入 .gitignore，绝对不要提交**。
@@ -29,7 +29,9 @@ pytest -q
 ### 3.2 数据源选择与 iFind 确认
 
 - 默认数据源是 **AkShare**（免费），用于日线行情、指数行情、成分股列表。
+- 可选 **Tushare Pro**（需 `TUSHARE_TOKEN`），回测/数据更新时 `--source tushare`。
 - iFind MCP 只用于基本面（PE/PB/ROE）、宏观（CPI/PMI/M2）、新闻情绪（当前不可用）。
+- 免费情绪因子可走东方财富/AkShare：`--sentiment-source free`。
 - **任何会调用 iFind MCP 的 CLI 命令都会先提示用户确认**；脚本环境请加 `--yes` 跳过确认。
 - iFind MCP 额度紧张，回测、训练、模拟交易默认应使用本地缓存：
 
@@ -44,6 +46,7 @@ python -m aifa_quant.cli.main paper-trade run ...
 ### 3.3 情绪因子默认关闭
 
 `--sentiment` 依赖 iFind news MCP，当前通常无数据/限流。不要默认开启。
+需要情绪数据时可优先使用 `--sentiment-source free`（东方财富 / AkShare）。
 
 ### 3.4 不要修改 `.env`、DuckDB、模型文件后再提交
 
@@ -54,12 +57,14 @@ python -m aifa_quant.cli.main paper-trade run ...
 | 模块 | 说明 | 关键文件 |
 |------|------|----------|
 | 数据层 | DuckDB 存储 + iFind MCP 适配器 | `data/storage/duckdb_store.py`, `data/adapters/` |
-| 因子 | 技术/基本面/宏观/情绪因子 | `features/builder.py` |
-| 模型 | LightGBM 二分类，统一接口 | `models/lgb_ranker.py`, `models/base.py` |
-| 策略 | 默认 TopK-Dropout | `strategy/topk_dropout.py` |
+| 因子 | 技术/Alpha101/基本面/宏观/情绪因子 | `features/builder.py`, `features/alpha_factors.py` |
+| 模型 | LightGBM 二分类 / LambdaRank / Ensemble | `models/lgb_ranker.py`, `models/lgb_lambdarank.py`, `models/ensemble.py`, `models/base.py` |
+| 策略 | 默认 TopK-Dropout，支持策略模板 | `strategy/topk_dropout.py`, `strategy/templates.py` |
+| 可解释性 | SHAP 特征重要性 | `analysis/shap_explainer.py` |
+| 自动化 | 每周选股报告 | `research/weekly_picker.py` |
 | 回测 | A股规则引擎 | `backtest/engine.py` |
 | 模拟交易 | 基于 SimulatedBroker，状态持久化 | `paper_trading/engine.py`, `execution/broker/simulated_broker.py` |
-| Web | React + Hono + tRPC，直接读 DuckDB | `web/` |
+| Web | React + Hono + tRPC，直接读 DuckDB；含因子商店、回测重跑 | `web/` |
 
 ## 5. 新增数据库表
 

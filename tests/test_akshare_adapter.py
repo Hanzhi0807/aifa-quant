@@ -3,6 +3,8 @@
 import pandas as pd
 import pytest
 
+pytest.importorskip("akshare")
+
 from aifa_quant.data.adapters import AkShareAdapter
 
 
