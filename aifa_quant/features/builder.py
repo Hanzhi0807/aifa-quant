@@ -60,6 +60,7 @@ class FeatureBuilder:
         include_macro: bool = True,
         include_sentiment: bool = True,
         corr_threshold: float | None = 0.95,
+        cache_only: bool = False,
     ) -> pd.DataFrame:
         """Build full feature matrix and label for modeling.
 
@@ -69,6 +70,7 @@ class FeatureBuilder:
             include_fundamental: Whether to merge PE/PB/ROE ratios from iFind.
             include_macro: Whether to merge macroeconomic indicators.
             include_sentiment: Whether to merge news sentiment factors from iFind.
+            cache_only: If True, only use cached fundamental/macro data; do not call iFind for missing data.
             corr_threshold: If not None, drop one feature from each highly correlated pair.
         """
         print("[yellow]正在从 DuckDB 加载原始日线数据...[/yellow]")
@@ -90,7 +92,7 @@ class FeatureBuilder:
             cached_symbols = set(cached_fundamental["symbol"].unique()) if not cached_fundamental.empty else set()
             missing_symbols = [s for s in symbols if s not in cached_symbols]
 
-            if missing_symbols:
+            if missing_symbols and not cache_only:
                 adapter = StockMCPAdapter(self.settings)
                 fetched_frames = []
                 for i, symbol in enumerate(missing_symbols, 1):
@@ -105,6 +107,11 @@ class FeatureBuilder:
                     fetched = pd.concat(fetched_frames, ignore_index=True)
                     self.store.save_fundamental_data(fetched)
                     cached_fundamental = pd.concat([cached_fundamental, fetched], ignore_index=True)
+            elif missing_symbols:
+                print(
+                    f"[yellow]缓存仅覆盖 {len(cached_symbols)}/{len(symbols)} 只股票，"
+                    f"剩余 {len(missing_symbols)} 只因 cache_only 跳过拉取[/yellow]"
+                )
             else:
                 print(f"[green]已命中缓存：{len(cached_symbols)} 只股票的基本面数据[/green]")
 
@@ -125,6 +132,10 @@ class FeatureBuilder:
                 if not cached_macro.empty:
                     print(f"[green]  {col_name}: 已命中缓存 ({len(cached_macro)} 条)[/green]")
                     raw = merge_macro_to_daily(raw, cached_macro, col_name)
+                    continue
+
+                if cache_only:
+                    print(f"[yellow]  {col_name}: 缓存为空且 cache_only=True，跳过[/yellow]")
                     continue
 
                 print(f"  从 iFind 拉取 {col_name}: {query}")
@@ -152,6 +163,7 @@ class FeatureBuilder:
                     start_date=start_date,
                     end_date=end_date,
                     settings=self.settings,
+                    cache_only=cache_only,
                 )
                 if not sentiment.empty:
                     raw = merge_sentiment_to_daily(raw, sentiment)

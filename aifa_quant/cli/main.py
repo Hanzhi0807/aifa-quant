@@ -130,6 +130,9 @@ def backtest(
         "--corr-threshold",
         help="Drop one feature from each pair with abs correlation >= threshold (set 1.0 to disable)",
     ),
+    cache_only: bool = typer.Option(
+        False, "--cache-only", help="Only use cached fundamental/macro data; do not call iFind for missing data"
+    ),
 ):
     """Run backtest using trained model and TopK-Dropout strategy."""
     settings = Settings()
@@ -144,6 +147,7 @@ def backtest(
         include_macro=include_macro,
         include_sentiment=include_sentiment,
         corr_threshold=corr_threshold,
+        cache_only=cache_only,
     )
     if features.empty:
         print("[red]没有可用特征数据[/red]")
@@ -270,6 +274,9 @@ def train(
         "--corr-threshold",
         help="Drop one feature from each pair with abs correlation >= threshold (set 1.0 to disable)",
     ),
+    cache_only: bool = typer.Option(
+        False, "--cache-only", help="Only use cached fundamental/macro data; do not call iFind for missing data"
+    ),
 ):
     """Train a LightGBM stock selection model."""
     settings = Settings()
@@ -280,6 +287,7 @@ def train(
         label_horizon=horizon,
         include_sentiment=include_sentiment,
         corr_threshold=corr_threshold,
+        cache_only=cache_only,
     )
     if df.empty:
         print("[red]没有可用数据，请先运行 data-update[/red]")

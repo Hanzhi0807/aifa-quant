@@ -19,6 +19,20 @@ def merge_fundamental_to_daily(daily_df: pd.DataFrame, financial_df: pd.DataFram
     daily["trade_date"] = pd.to_datetime(daily["trade_date"])
     financial["report_date"] = pd.to_datetime(financial["report_date"])
 
+    # Keep only useful columns to avoid bringing metadata (e.g. created_at) into features.
+    useful_cols = [
+        "symbol",
+        "report_date",
+        "pe_lyr",
+        "pb",
+        "pb_mrq",
+        "roe_deducted",
+        "roe_ttm",
+        "roe_weighted",
+        "roe_diluted",
+    ]
+    financial = financial[[c for c in useful_cols if c in financial.columns]].copy()
+
     # For each symbol, merge asof forward fill
     merged_frames = []
     for symbol in daily["symbol"].unique():

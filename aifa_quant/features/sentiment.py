@@ -13,6 +13,7 @@ def build_sentiment_features(
     end_date: str | None = None,
     settings: Settings | None = None,
     size_per_symbol: int = 50,
+    cache_only: bool = False,
 ) -> pd.DataFrame:
     """Build daily sentiment features for a list of symbols.
 
@@ -23,11 +24,27 @@ def build_sentiment_features(
         end_date: End date (YYYYMMDD).
         settings: Project settings.
         size_per_symbol: Max news articles per symbol query.
+        cache_only: If True, do not call news MCP and return an empty DataFrame.
 
     Returns:
         DataFrame with columns: symbol, trade_date, news_score, news_positive_ratio,
         news_negative_ratio, news_neutral_ratio, news_polarity, news_article_count.
     """
+    if cache_only:
+        print("[yellow]cache_only=True，跳过情绪因子拉取[/yellow]")
+        return pd.DataFrame(
+            columns=[
+                "symbol",
+                "trade_date",
+                "news_score",
+                "news_positive_ratio",
+                "news_negative_ratio",
+                "news_neutral_ratio",
+                "news_polarity",
+                "news_article_count",
+            ]
+        )
+
     adapter = NewsMCPAdapter(settings)
     name_map = name_map or {}
     frames = []
