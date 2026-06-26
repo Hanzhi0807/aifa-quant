@@ -9,7 +9,6 @@ from typing import Any
 
 import pandas as pd
 
-from ..data.adapters.base import BaseMCPAdapter
 from ..models.base import BaseModel
 from ..strategy.base import BaseStrategy
 
@@ -109,7 +108,6 @@ class BaseBroker(ABC):
 __all__ = [
     "BaseModel",
     "BaseStrategy",
-    "BaseMCPAdapter",
     "BaseDataSource",
     "BaseBroker",
 ]

@@ -1,12 +1,25 @@
 # AifaQuant - A股 AI 量化研究与回测框架
 
-[![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue)](https://www.python.org/)
+[![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue)](https://www.python.org/)
 ![License](https://img.shields.io/badge/license-MIT-green)
 [![Release](https://img.shields.io/github/v/release/ivyzhi0807/aifa-quant)](https://github.com/ivyzhi0807/aifa-quant/releases)
 
+> **⚠️ 免责声明**
+>
+> AifaQuant 是一个**量化研究与学习框架**，所有代码、示例、回测结果和模拟交易结果**仅供技术研究参考，不构成任何投资建议**。
+> 作者不对因使用本项目而产生的任何投资亏损、交易风险或法律责任负责。在将任何策略用于实盘之前，请自行充分回测、风险评估，并遵守所在国家/地区的法律法规。
+
+> **📜 开源与使用声明**
+>
+> 本项目代码按 [MIT 许可证](LICENSE) 开源，允许自由使用、修改和分发，但需保留版权声明。
+> 作者将本项目定位为**个人学习与非商业研究用途**，不推荐直接将其作为商业投顾、资管产品或对外付费服务的一部分。
+> 如需用于商业场景，请自行评估合规风险并承担相应责任。
+
+---
+
 AifaQuant 是一个本地优先的 **A股 AI 量化研究与回测框架**，覆盖数据获取、因子工程、模型训练、策略回测到模拟交易的完整闭环。
 
-- **数据源**：默认 [AkShare](https://www.akshare.xyz/)（免费）；可选 [Tushare](https://tushare.pro/)（需 token）；基本面/宏观/情绪仍走同花顺 iFind MCP。
+- **数据源**：默认 [AkShare](https://www.akshare.xyz/)（免费，无需 token）；可选 [Tushare](https://tushare.pro/)（需 token）；基本面/宏观/情绪仍走同花顺 iFind MCP。
 - **存储**：本地 DuckDB，日线、基本面、宏观、情绪数据一次缓存，离线复用。
 - **特征工程**：技术指标 + Alpha101/191 风格因子 + 基本面（PE/PB/ROE）+ 宏观（CPI/PMI/M2）+ 情绪（iFind / 东方财富免费）+ 高相关性剔除。
 - **模型**：LightGBM 二分类 / LambdaRank 排序 / Ensemble 模型集成。
@@ -16,12 +29,11 @@ AifaQuant 是一个本地优先的 **A股 AI 量化研究与回测框架**，覆
 - **模拟交易**：基于训练好的模型每日生成信号，用 `SimulatedBroker` 虚拟成交，状态持久化到 DuckDB。
 - **自动化**：每周 AI 选股报告自动生成。
 
-> ⚠️ 本项目处于研究与框架验证阶段，回测和模拟交易结果**不代表实盘表现**。
-
 ---
 
 ## 目录
 
+- [复制给你的 Agent（零基础上手）](#复制给你的-agent零基础上手)
 - [快速开始](#快速开始)
 - [完整工作流](#完整工作流)
 - [CLI 命令速查](#cli-命令速查)
@@ -29,8 +41,35 @@ AifaQuant 是一个本地优先的 **A股 AI 量化研究与回测框架**，覆
 - [最新回测结果](#最新回测结果)
 - [模拟交易](#模拟交易)
 - [前端网站（可选）](#前端网站可选)
+- [Alpha101/191 因子库](#alpha101191-因子库)
+- [LambdaRank 排序模型与 Ensemble](#lambdarank-排序模型与-ensemble)
+- [SHAP 可解释性](#shap-可解释性)
+- [策略模板](#策略模板)
+- [每周 AI 选股报告](#每周-ai-选股报告)
+- [MkDocs 文档站](#mkdocs-文档站)
+- [Docker 一键启动](#docker-一键启动)
 - [文档索引](#文档索引)
 - [注意事项](#注意事项)
+
+---
+
+## 复制给你的 Agent（零基础上手）
+
+如果你不熟悉命令行或第一次接触本项目，直接把下面这段话复制给你的 AI Agent，它会按顺序完成环境配置并跑通第一个完整工作流：
+
+> 请帮我完成 AifaQuant 项目的初始配置并跑通完整工作流：
+> 1. 进入项目根目录（例如 `D:\workspace\AI QUANT` 或你 clone 到的目录）。
+> 2. 确认已安装 Python 3.10、3.11 或 3.12。
+> 3. 创建虚拟环境 `.venv`：Windows 运行 `python -m venv .venv` 并激活 `.venv\Scripts\activate`；macOS/Linux 运行 `python3 -m venv .venv` 并激活 `source .venv/bin/activate`。
+> 4. 安装依赖：`pip install -r requirements.txt`。
+> 5. 复制 `.env.example` 为 `.env`。如果只想使用免费数据，iFind token 可以暂时留空；需要基本面/宏观/情绪数据时再填入你的 iFind MCP token。
+> 6. 运行测试确认环境正常：`pytest tests/ -q`。
+> 7. 下载沪深 300 日线数据：`python -m aifa_quant.cli.main data-update --universe 沪深300 --start 20230101 --end 20241231`。
+> 8. 查看数据概况：`python -m aifa_quant.cli.main db-info`。
+> 9. 训练选股模型：`python -m aifa_quant.cli.main train --start 20230101 --end 20241231 --no-sentiment --cache-only`。
+> 10. 滚动回测：`python -m aifa_quant.cli.main backtest --start 20240101 --end 20241231 --rolling --benchmark 000300.SH --top-k 5 --freq 5 --no-sentiment --cache-only`。
+> 11. 模拟交易：`python -m aifa_quant.cli.main paper-trade reset --cash 1000000`，然后 `python -m aifa_quant.cli.main paper-trade run --dry-run`，再 `python -m aifa_quant.cli.main paper-trade run`，最后 `python -m aifa_quant.cli.main paper-trade status`。
+> 每完成一步请向我汇报结果；如果遇到报错，先尝试修复并继续。
 
 ---
 
@@ -39,12 +78,17 @@ AifaQuant 是一个本地优先的 **A股 AI 量化研究与回测框架**，覆
 ### 1. 环境准备
 
 ```bash
-cd d:/kimi/aifa_quant
+# 进入项目根目录（换成你本地的实际路径）
+cd <aifa-quant-project-root>
+
+# 创建并激活虚拟环境（Windows 示例）
+python -m venv .venv
+.venv\Scripts\activate
 
 # 安装依赖
 pip install -r requirements.txt
 
-# 复制并编辑 .env（填入 iFind MCP token）
+# 复制并编辑 .env（填入 iFind MCP token，可选）
 cp .env.example .env
 ```
 
@@ -52,27 +96,26 @@ cp .env.example .env
 
 ### 2. 获取数据（二选一）
 
-**推荐：从 GitHub Release 导入测试数据（不消耗 iFind 额度）**
-
-```bash
-python scripts/import_source_data.py data_store/
-```
-
- Release 包含沪深 300 成分股 2023–2024 日线 + 基本面 + 宏观数据：
- [v0.4.0-data-full](https://github.com/ivyzhi0807/aifa-quant/releases/tag/v0.4.0-data-full)
-
-**或直接用 AkShare 下载（默认，免费）**
+**推荐：直接用 AkShare 下载（默认，免费）**
 
 ```bash
 python -m aifa_quant.cli.main data-update \
-  --universe 000300 \
+  --universe 沪深300 \
   --start 20230101 --end 20241231
 
 # 同时缓存基本面/宏观（需要 iFind token）
 python -m aifa_quant.cli.main data-update \
-  --universe 000300 \
+  --universe 沪深300 \
   --start 20230101 --end 20241231 \
   --fundamental --macro
+```
+
+**或从 Release 数据包导入（如有）**
+
+如果 GitHub Release 提供了 `aifa_quant_daily_quotes_2023_2024.csv.gz` 等数据包，可放到 `data_store/` 后导入：
+
+```bash
+python scripts/import_source_data.py data_store/
 ```
 
 **使用 Tushare Pro 下载（需 token）**
@@ -192,11 +235,11 @@ python -m aifa_quant.cli.main explain \
 
 ```text
 aifa_quant/
-├── aifa_quant/               # Python 命名空间包
+├── aifa_quant/               # Python 包
 │   ├── config/               # Pydantic Settings + .env 读取
 │   ├── core/                 # 抽象接口（BaseModel / BaseStrategy / BaseBroker / BaseDataSource）
 │   ├── data/
-│   │   ├── adapters/         # iFind MCP 适配器（stock / index / macro / news）
+│   │   ├── adapters/         # 数据源适配器（AkShare / Tushare / iFind MCP）
 │   │   ├── pipeline/         # 增量更新 Pipeline
 │   │   └── storage/          # DuckDB 封装
 │   ├── features/             # 因子工程（技术 / Alpha101 / 基本面 / 宏观 / 情绪 / 特征筛选）
@@ -219,19 +262,30 @@ aifa_quant/
 
 ## 最新回测结果
 
-> 数据：沪深 300 成分股 2023–2024 日线 + 基本面 + 宏观。  
-> 策略：预训练 LightGBM，TopK=5，调仓频率 5 日，已剔除高相关性特征。
+> 数据：沪深 300 成分股 2023–2024 日线（AkShare 默认数据源）。策略：滚动训练 LightGBM，TopK=5，调仓频率 5 日，已剔除高相关性特征，基准为 000300.SH。
 
 | 指标 | 数值 |
 |------|------|
-| 总收益率 | 76.44% |
-| 年化收益率 | 80.63% |
-| 年化波动率 | 75.61% |
-| 夏普比率 | 1.066 |
-| 最大回撤 | -29.88% |
-| 日胜率 | 54.77% |
+| 总收益率 | 307.43% |
+| 年化收益率 | 331.78% |
+| 年化波动率 | 28.74% |
+| 夏普比率 | 5.265 |
+| 最大回撤 | -11.46% |
+| 日胜率 | 64.73% |
+| 基准总收益 | 16.20% |
+| 超额收益 | 291.23% |
+| 超额夏普 | 7.408 |
 
-回测同时会输出 `data_store/reports/metrics_YYYYMMDD_YYYYMMDD.json` 与净值 CSV，供前端仪表盘直接读取。
+运行滚动回测后查看结果：
+
+```bash
+python -m aifa_quant.cli.main backtest \
+  --start 20240101 --end 20241231 \
+  --rolling --benchmark 000300.SH \
+  --top-k 5 --freq 5 --no-sentiment --cache-only
+```
+
+回测同时会输出 `data_store/reports/equity_YYYYMMDD_YYYYMMDD.csv` 与净值 PNG，供前端仪表盘直接读取。
 
 ---
 
@@ -266,7 +320,7 @@ npm install
 npm run dev
 ```
 
-本地开发地址：`http://localhost:3000`
+本地开发地址：`http://localhost:3000`（若 3000 被占用，Vite 会自动切换端口）。
 
 生产构建：
 
@@ -275,13 +329,11 @@ npm run build
 NODE_ENV=production node dist/boot.js
 ```
 
-> 线上预览链接当前不可用，请使用本地开发服务器。
-
 ---
 
 ## Alpha101/191 因子库
 
-`aifa_quant/features/alpha_factors.py` 已注册 20+ 个 Alpha101/191 风格因子，特征构建时默认启用：
+`aifa_quant/features/alpha_factors.py` 已注册多个 Alpha101/191 风格因子，特征构建时默认启用：
 
 ```bash
 python -m aifa_quant.cli.main factor-analysis --start 20230101 --end 20241231
@@ -403,7 +455,6 @@ docker compose up --build -d
 ## 注意事项
 
 - **iFind MCP 额度**：当前 news/stock 配额紧张，建议日常回测/训练/模拟交易都加 `--cache-only`，避免意外调用。
-- **情绪因子**：默认关闭；可使用 `--sentiment-source free` 通过东方财富/AkShare 获取免费情绪数据。
-- **GitHub Actions**：当前账号被禁用 Actions，CI 徽章不会自动更新。
-- **成分股完整性**：沪深 300 成分股通过数据源接口抓取，具体数量取决于源。
+- **情绪因子**：默认关闭；需要时可使用 `--sentiment-source free` 通过东方财富/AkShare 获取免费情绪数据。
+- **成分股完整性**：沪深 300 成分股通过数据源接口抓取，具体数量取决于源与网络情况。
 - **数据与模型不提交 Git**：`data_store/`、`.env`、模型文件、`site/` 已加入 `.gitignore`。

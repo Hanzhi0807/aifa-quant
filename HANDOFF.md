@@ -5,7 +5,7 @@
 
 ## 1. 项目一句话
 
-AifaQuant 是一个基于 **Python + DuckDB + LightGBM** 的 A股 AI 量化研究与回测框架，以 **同花顺 iFind MCP** 为主要数据源，支持数据获取、因子工程、模型训练、滚动回测和结果可视化的完整闭环。
+AifaQuant 是一个基于 **Python + DuckDB + LightGBM** 的 A股 AI 量化研究与回测框架，默认以 **AkShare** 作为免费数据源，可选 **Tushare / iFind MCP**，支持数据获取、因子工程、模型训练、滚动回测和结果可视化的完整闭环。
 
 ## 2. 当前状态（v0.4.0）
 
@@ -55,7 +55,7 @@ aifa_quant/
 ## 4. 环境准备
 
 ```bash
-cd d:/kimi/aifa_quant
+cd <aifa-quant-project-root>
 
 # 1. 确认 .env 已配置（仓库根目录，不提交 Git）
 cat .env
@@ -73,7 +73,7 @@ ruff check aifa_quant scripts tests
 pytest tests/ -v
 ```
 
-**注意**：所有 `python -m aifa_quant.cli.main ...` 命令必须在项目根目录 `d:/kimi/aifa_quant` 下执行，否则模块找不到。
+**注意**：所有 `python -m aifa_quant.cli.main ...` 命令必须在项目根目录下执行，否则模块找不到。
 
 ## 5. 标准工作流
 

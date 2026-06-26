@@ -191,8 +191,11 @@ class FeatureBuilder:
 
         print("[yellow]正在构建技术因子...[/yellow]")
         # Use groupby.apply for vectorized per-symbol computation instead of a Python for-loop.
-        df = raw.groupby("symbol", group_keys=False).apply(self.build_per_symbol)
-        df = df.reset_index(drop=True)
+        # pandas 3.x drops the grouping column with group_keys=False; reset_index to recover it.
+        df = raw.groupby("symbol").apply(self.build_per_symbol, include_groups=False)
+        df = df.reset_index()
+        if "level_1" in df.columns:
+            df = df.drop(columns=["level_1"])
 
         if include_alpha:
             print(f"[yellow]正在构建 Alpha101/191 因子（{len(alpha_factors or list_alpha_factors())} 个）...[/yellow]")

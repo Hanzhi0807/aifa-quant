@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aifa-quant"
-version = "0.5.1"
+version = "0.4.0"
 description = "A股 AI 量化研究框架"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.13"
 license = {text = "MIT"}
 authors = [
     {name = "ivyzhi0807", email = "jiangjas@gmail.com"},
@@ -20,7 +20,6 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
     "pandas>=2.0.0",
@@ -42,7 +41,7 @@ dependencies = [
     "matplotlib>=3.8.0",
     "seaborn>=0.13.0",
     "plotly>=5.20.0",
-    "akshare>=1.15.0",
+    "akshare>=1.18.0",
 ]
 
 [project.optional-dependencies]

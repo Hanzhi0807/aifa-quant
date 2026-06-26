@@ -256,9 +256,14 @@ def compute_alpha_factors(df: pd.DataFrame, selected: list[str] | None = None) -
         if name not in ALPHA_REGISTRY:
             continue
         _, func = ALPHA_REGISTRY[name]
-        df = df.groupby("symbol", group_keys=False).apply(
-            lambda sub, f=func, n=name: _add_factor(sub, f, n)
+        # pandas 3.x strips the grouping column with group_keys=False; recover it via reset_index.
+        df = df.groupby("symbol").apply(
+            lambda sub, f=func, n=name: _add_factor(sub, f, n),
+            include_groups=False,
         )
+        df = df.reset_index()
+        if "level_1" in df.columns:
+            df = df.drop(columns=["level_1"])
     return df
 
 

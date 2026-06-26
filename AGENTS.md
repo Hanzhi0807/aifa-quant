@@ -6,12 +6,12 @@
 ## 1. 项目概览
 
 - AifaQuant 是一个本地优先的 A股 AI 量化研究与回测框架。
-- 代码在 `aifa_quant/aifa_quant/` 命名空间包下。
-- 所有 CLI 命令必须在项目根目录 `d:/kimi/aifa_quant` 下执行。
+- 代码在 `aifa_quant/` Python 包下。
+- 所有 CLI 命令必须在项目根目录下执行（将 `<project-root>` 替换为你本地 clone 的目录）。
 
 ## 2. 必知环境
 
-- **Python**：使用仓库根目录的 venv：`../.venv/Scripts/python`（Windows）。
+- **Python**：使用仓库根目录的 venv：`.venv/Scripts/python`（Windows）或 `.venv/bin/python`（macOS/Linux）。
 - **CLI 入口**：`python -m aifa_quant.cli.main <command>`；也可用 `aifa <command>`（安装后）。
 - **DuckDB**：`data_store/aifa_quant.duckdb`，thread-local 连接，禁止跨线程共享连接。
 - **.env**：包含 iFind MCP token，**已加入 .gitignore，绝对不要提交**。
@@ -97,7 +97,6 @@ python -m aifa_quant.cli.main paper-trade run ...
 
 - GitHub Actions 当前被禁用，CI 徽章不会更新。
 - 沪深 300 成分股不完整（约 288 只），新浪财经抓取去重后缺失部分。
-- 基本面数据部分股票缺失 `report_date`，缓存时会被过滤。
-- Web UI 线上预览链接已过期，本地开发使用 `http://localhost:3000`。
+- Web UI 本地开发默认使用 `http://localhost:3000`，端口被占用时会自动切换。
 - Web 生产构建需 `npm run build`；`duckdb` 是外部依赖，不能被打包进 `dist/boot.js`。
 - Docker 一键启动需本地 Docker daemon 运行；Windows 上通常需要启动 Docker Desktop。

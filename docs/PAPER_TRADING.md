@@ -51,7 +51,7 @@ python -m aifa_quant.cli.main train \
 
 ## 3. 常用命令
 
-所有命令都在项目根目录 `d:/kimi/aifa_quant` 下执行。
+所有命令都在项目根目录下执行。
 
 ### 3.1 初始化 / 重置账户
 

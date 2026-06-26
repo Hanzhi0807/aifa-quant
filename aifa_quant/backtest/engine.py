@@ -6,6 +6,10 @@ import pandas as pd
 
 from ..core.trading_config import TradingConfig
 from ..models.base import BaseModel
+
+
+# Model may be omitted when pred_score is already provided by rolling trainer.
+ModelType = BaseModel | None
 from ..strategy.base import BaseStrategy
 
 
@@ -76,7 +80,7 @@ class BacktestEngine:
         self,
         quotes: pd.DataFrame,
         features: pd.DataFrame,
-        model: BaseModel,
+        model: ModelType,
         strategy: BaseStrategy,
         start_date: str | None = None,
         end_date: str | None = None,
@@ -105,6 +109,8 @@ class BacktestEngine:
 
         # Add prediction scores if not already present (e.g. from rolling trainer)
         if "pred_score" not in features.columns:
+            if model is None:
+                raise ValueError("pred_score column is missing and no model was provided")
             feat_cols = [c for c in features.columns if c in model.feature_names]
             features["pred_score"] = model.predict(features[feat_cols])
 

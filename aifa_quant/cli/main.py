@@ -80,7 +80,7 @@ def data_update(
     end: str = typer.Option("20241231", "--end", help="End date YYYYMMDD"),
     full: bool = typer.Option(False, "--full", help="Full refresh instead of incremental"),
     universe: str = typer.Option(
-        "上证50", "--universe", help="Stock universe query (e.g., 上证50, 沪深300, 全部A股)"
+        "沪深300", "--universe", help="Stock universe query (e.g., 上证50, 沪深300, 全部A股)"
     ),
     sample: int | None = typer.Option(None, "--sample", help="Limit universe to first N stocks for testing"),
     workers: int = typer.Option(3, "--workers", help="Concurrent download workers"),
@@ -238,6 +238,7 @@ def backtest(
 
     feature_cols = builder.feature_columns(features)
 
+    model = None
     if rolling:
         print("[yellow]正在滚动训练生成 out-of-sample 预测...[/yellow]")
         trainer = RollingTrainer(train_window_days=252 * 2, min_train_samples=500, settings=settings)
@@ -291,11 +292,13 @@ def backtest(
     try:
         if source == "akshare":
             index_adapter = AkShareAdapter(settings)
+            bench_df = index_adapter.get_index_data(benchmark, start_date=start, end_date=end)
         elif source == "tushare":
             index_adapter = TushareAdapter(settings)
+            bench_df = index_adapter.get_index_data(benchmark, start_date=start, end_date=end)
         else:
             index_adapter = IndexMCPAdapter(settings)
-        bench_df = index_adapter.get_daily_data(benchmark, start_date=start, end_date=end)
+            bench_df = index_adapter.get_daily_data(benchmark, start_date=start, end_date=end)
         if bench_df.empty or "close" not in bench_df.columns:
             bench_df = None
     except Exception as e:
