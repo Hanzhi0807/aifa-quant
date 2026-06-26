@@ -1,137 +1,165 @@
-# AifaQuant - A股 AI 量化研究框架
+# AifaQuant - A股 AI 量化研究与回测框架
 
-[![CI](https://github.com/ivyzhi0807/aifa-quant/actions/workflows/ci.yml/badge.svg)](https://github.com/ivyzhi0807/aifa-quant/actions)
-![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue)
+[![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue)](https://www.python.org/)
 ![License](https://img.shields.io/badge/license-MIT-green)
 [![Release](https://img.shields.io/github/v/release/ivyzhi0807/aifa-quant)](https://github.com/ivyzhi0807/aifa-quant/releases)
 
-个人本地运行的 A股 AI 量化研究与回测系统，以同花顺 iFind MCP 为主要数据源，支持从数据获取、因子构建、模型训练、策略回测到模拟交易的完整闭环。
+AifaQuant 是一个本地优先的 **A股 AI 量化研究与回测框架**，覆盖数据获取、因子工程、模型训练、策略回测到模拟交易的完整闭环。
 
-> **English**: AifaQuant is a local-first A-share quantitative research and backtesting framework in Python. It uses iFind MCP as the primary data source, DuckDB for storage, LightGBM for stock selection, and a custom event-driven backtest engine with CSI 300 benchmark comparison.
+- **数据源**：同花顺 iFind MCP（Streamable HTTP）。
+- **存储**：本地 DuckDB，日线、基本面、宏观数据一次缓存，离线复用。
+- **模型**：LightGBM 二分类选股，输出上涨概率。
+- **策略**：TopK-Dropout 轮动。
+- **回测**：自定义 A股规则引擎（T+1、涨跌停、100 股整数手、佣金、印花税）。
+- **模拟交易**：基于训练好的模型每日生成信号，用 `SimulatedBroker` 虚拟成交，状态持久化到 DuckDB。
+
+> ⚠️ 本项目处于研究与框架验证阶段，回测和模拟交易结果**不代表实盘表现**。
+
+---
+
+## 目录
+
+- [快速开始](#快速开始)
+- [完整工作流](#完整工作流)
+- [CLI 命令速查](#cli-命令速查)
+- [项目结构](#项目结构)
+- [最新回测结果](#最新回测结果)
+- [模拟交易](#模拟交易)
+- [前端网站（可选）](#前端网站可选)
+- [文档索引](#文档索引)
+- [注意事项](#注意事项)
+
+---
 
 ## 快速开始
 
-1. 复制环境变量模板并填入你的 MCP token（已完成 `.env`）：
-   ```bash
-   cp .env.example .env
-   # 编辑 .env 填入真实 token
-   ```
+### 1. 环境准备
 
-2. 安装依赖：
-   ```bash
-   pip install -r requirements.txt
-   ```
+```bash
+cd d:/kimi/aifa_quant
 
-3. 测试数据连接：
-   ```bash
-   python -m aifa_quant.cli.main test-connection
-   ```
+# 安装依赖
+pip install -r requirements.txt
 
-4. 更新本地数据（需要 iFind MCP 配额）：
-   ```bash
-   # 日线行情 + 基本面 + 宏观数据一次性缓存
-   python -m aifa_quant.cli.main data-update \
-     --symbol-file data_store/csi300_symbols.txt \
-     --start 20230101 --end 20241231 \
-     --workers 5 --fundamental --macro
-   ```
-   如果 iFind MCP 配额已耗尽，可直接下载 [Release v0.3.0-data-csi300](https://github.com/ivyzhi0807/aifa-quant/releases/tag/v0.3.0-data-csi300) 并用 `python scripts/import_source_data.py data_store/` 导入。
+# 复制并编辑 .env（填入 iFind MCP token）
+cp .env.example .env
+```
 
-5. 训练选股模型：
-   ```bash
-   python -m aifa_quant.cli.main train --start 20230101 --end 20231231 --horizon 5
-   ```
+> `.env` 已加入 `.gitignore`，**不要提交到 Git**。
 
-6. 运行回测：
-   ```bash
-   python -m aifa_quant.cli.main backtest --start 20240101 --end 20241231 --top-k 3 --freq 5
-   ```
+### 2. 获取数据（二选一）
 
-7. 模拟交易（纸交易）：
-   ```bash
-   # 初始化账户
-   python -m aifa_quant.cli.main paper-trade reset --cash 1000000
+**推荐：从 GitHub Release 导入测试数据（不消耗 iFind 额度）**
 
-   # 先用 dry-run 查看今日信号和计划交易
-   python -m aifa_quant.cli.main paper-trade run --dry-run
+```bash
+python scripts/import_source_data.py data_store/
+```
 
-   # 执行交易并持久化到 DuckDB
-   python -m aifa_quant.cli.main paper-trade run
+ Release 包含沪深 300 成分股 2023–2024 日线 + 基本面 + 宏观数据：
+ [v0.4.0-data-full](https://github.com/ivyzhi0807/aifa-quant/releases/tag/v0.4.0-data-full)
 
-   # 查看账户状态
-   python -m aifa_quant.cli.main paper-trade status
-   ```
+**或从 iFind MCP 下载（需要 token 和额度）**
+
+```bash
+python -m aifa_quant.cli.main data-update \
+  --symbol-file data_store/csi300_symbols.txt \
+  --start 20230101 --end 20241231 \
+  --workers 5 --fundamental --macro
+```
+
+### 3. 验证数据
+
+```bash
+python -m aifa_quant.cli.main db-info
+```
+
+---
+
+## 完整工作流
+
+```bash
+# 1. 训练选股模型
+python -m aifa_quant.cli.main train \
+  --start 20230101 --end 20241231 \
+  --no-sentiment --cache-only
+
+# 2. 滚动回测（带沪深 300 基准）
+python -m aifa_quant.cli.main backtest \
+  --start 20240101 --end 20241231 \
+  --rolling --benchmark 000300.SH \
+  --top-k 5 --freq 5 --no-sentiment --cache-only
+
+# 3. 初始化模拟账户
+python -m aifa_quant.cli.main paper-trade reset --cash 1000000
+
+# 4. 模拟交易（dry-run 试跑）
+python -m aifa_quant.cli.main paper-trade run --dry-run
+
+# 5. 正式执行模拟交易
+python -m aifa_quant.cli.main paper-trade run
+
+# 6. 查看账户状态
+python -m aifa_quant.cli.main paper-trade status
+```
+
+---
+
+## CLI 命令速查
+
+| 命令 | 作用 |
+|------|------|
+| `python -m aifa_quant.cli.main --help` | 查看所有命令 |
+| `python -m aifa_quant.cli.main test-connection` | 测试 iFind MCP 连接 |
+| `python -m aifa_quant.cli.main data-update --start 20230101 --end 20241231` | 更新日线数据 |
+| `python -m aifa_quant.cli.main db-info` | 查看 DuckDB 数据概览 |
+| `python -m aifa_quant.cli.main train --start 20230101 --end 20241231` | 训练 LightGBM 模型 |
+| `python -m aifa_quant.cli.main backtest --start 20240101 --end 20241231 --top-k 5` | 回测 |
+| `python -m aifa_quant.cli.main paper-trade reset --cash 1000000` | 初始化模拟账户 |
+| `python -m aifa_quant.cli.main paper-trade run --dry-run` | 试跑模拟交易 |
+| `python -m aifa_quant.cli.main paper-trade run` | 执行模拟交易 |
+| `python -m aifa_quant.cli.main paper-trade status` | 查看模拟账户 |
+
+常用参数：
+
+- `--no-sentiment`：关闭新闻情绪因子（当前 iFind news MCP 配额紧张，建议关闭）。
+- `--cache-only`：只使用 DuckDB 缓存，不调用 iFind。
+- `--rolling`：滚动窗口训练，避免未来函数。
+- `--top-k N`：持仓数量。
+- `--freq N`：再平衡周期（天）。
+
+---
 
 ## 项目结构
 
-- `config/` - 配置管理（Pydantic Settings + `.env`）
-- `data/adapters/` - iFind MCP 适配器（股票、宏观、新闻、指数）
-- `data/storage/` - DuckDB 本地存储
-- `data/pipeline/` - ETL 与增量更新
-- `features/` - 因子工程（技术、财务、宏观、情绪）
-- `models/` - AI 模型（LightGBM 等）
-- `strategy/` - 策略定义
-- `backtest/` - 回测引擎与绩效分析
-- `execution/` - 模拟/实盘交易执行
-- `paper_trading/` - 模拟交易引擎与状态持久化
-- `cli/` - 命令行入口
-- `notebooks/` - 研究与探索
-
-## CLI 命令
-
-```bash
-# 查看帮助
-python -m aifa_quant.cli.main --help
-
-# 常用工作流
-python -m aifa_quant.cli.main test-connection
-python -m aifa_quant.cli.main data-update --start 20230101 --end 20241231
-python -m aifa_quant.cli.main db-info
-python -m aifa_quant.cli.main train --start 20230101 --end 20231231
-python -m aifa_quant.cli.main backtest --start 20240101 --end 20241231 --top-k 3
-
-# 滚动训练 + 沪深 300 基准对比
-python -m aifa_quant.cli.main backtest --start 20240101 --end 20241231 --top-k 5 --freq 5 --rolling --benchmark 000300.SH
-
-# 模拟交易（使用缓存的最新交易日作为“今天”）
-python -m aifa_quant.cli.main paper-trade reset --cash 1000000
-python -m aifa_quant.cli.main paper-trade run --date 20241231 --dry-run
-python -m aifa_quant.cli.main paper-trade run --date 20241231
+```text
+aifa_quant/
+├── aifa_quant/               # Python 命名空间包
+│   ├── config/               # Pydantic Settings + .env 读取
+│   ├── core/                 # 抽象接口（BaseModel / BaseStrategy / BaseBroker / BaseDataSource）
+│   ├── data/
+│   │   ├── adapters/         # iFind MCP 适配器（stock / index / macro / news）
+│   │   ├── pipeline/         # 增量更新 Pipeline
+│   │   └── storage/          # DuckDB 封装
+│   ├── features/             # 因子工程（技术 / 基本面 / 宏观 / 情绪 / 特征筛选）
+│   ├── models/               # LightGBM、模型注册表、滚动训练器
+│   ├── strategy/             # TopK-Dropout 策略
+│   ├── backtest/             # A股规则回测引擎 + 绩效指标
+│   ├── execution/            # 模拟/实盘交易执行接口
+│   ├── paper_trading/        # 模拟交易引擎
+│   └── cli/                  # Typer 命令行入口
+├── web/                      # React + Hono + tRPC 前端（可选）
+├── scripts/                  # 独立脚本：导出/导入数据、SHAP、参数搜索等
+├── tests/                    # 单元测试
+├── data_store/               # DuckDB、模型、报告（不提交 Git）
+└── docs/                     # 文档
 ```
 
-## 当前能力
+---
 
-- 股票池：沪深 300 成分股（288 只已入库，2 只无数据）。
-- 历史数据：2023–2024 日线已打包为 [Release v0.3.0-data-csi300](https://github.com/ivyzhi0807/aifa-quant/releases/tag/v0.3.0-data-csi300)。
-- 因子：技术面 + 基本面（PE / PB / ROE） + 宏观（CPI / PMI / M2）。
-- 模型：LightGBM 二分类选股，支持滚动窗口 out-of-sample 预测。
-- 回测：自定义 A股规则引擎，支持沪深 300 基准对比与超额收益计算。
-- 模拟交易：基于训练好的模型，每日生成信号并通过 `SimulatedBroker` 虚拟成交，状态持久化到 DuckDB。详见 `docs/PAPER_TRADING.md`。
+## 最新回测结果
 
-## 最新回测结果（示例）
-
-> ⚠️ 以下为回测结果，存在过拟合、幸存者偏差和参数敏感性风险，不代表实盘表现。数据源见 [Release v0.4.0-data-full](https://github.com/ivyzhi0807/aifa-quant/releases/tag/v0.4.0-data-full)（日线 + 基本面 + 宏观）。
-
-### 5 年滚动回测（2020–2024，已做正则化 + 特征筛选）
-
-上证 50 成分股，全因子，滚动训练，TopK=5，调仓频率 5 日，已剔除高相关性特征：
-
-| 指标 | 数值 |
-|------|------|
-| 总收益率 | 402.85% |
-| 年化收益率 | 39.91% |
-| 年化波动率 | 19.14% |
-| 夏普比率 | 2.085 |
-| 最大回撤 | -41.27% |
-| 日胜率 | 50.12% |
-| 沪深 300 基准收益 | -5.23% |
-| 超额收益 | 408.09% |
-| 超额夏普 | 1.971 |
-| 特征数 | 33（剔除 5 个高相关） |
-
-### 2 年滚动回测（2023–2024，沪深 300）
-
-沪深 300 成分股，全因子（技术 + 基本面 + 宏观），滚动训练，TopK=5，调仓频率 5 日，已剔除高相关性特征：
+> 数据：沪深 300 成分股 2023–2024 日线 + 基本面 + 宏观。  
+> 策略：滚动训练，TopK=5，调仓频率 5 日，已剔除高相关性特征。
 
 | 指标 | 数值 |
 |------|------|
@@ -144,17 +172,33 @@ python -m aifa_quant.cli.main paper-trade run --date 20241231
 | 沪深 300 基准收益 | 1.21% |
 | 超额收益 | 335.16% |
 | 超额夏普 | 1.940 |
-| 特征数 | 26（剔除 5 个高相关） |
-
-### 净值曲线
 
 ![滚动回测净值曲线](docs/images/equity_curve_2023_2024_rolling.png)
 
-## 指标说明
+---
 
-策略回测指标的含义、参考值与“好策略”判断标准见 `docs/METRICS.md`；网站也新增了“指标”页面 `/metrics` 可直接查看。
+## 模拟交易
 
-## 网站前端（可选）
+模拟交易把 DuckDB 中**最新缓存的交易日**当作“今天”，离线生成信号、虚拟下单，不消耗 iFind 额度。
+
+```bash
+python -m aifa_quant.cli.main paper-trade reset --cash 1000000
+python -m aifa_quant.cli.main paper-trade run --dry-run
+python -m aifa_quant.cli.main paper-trade run
+python -m aifa_quant.cli.main paper-trade status
+```
+
+状态持久化在 DuckDB 的三张表中：
+
+- `paper_positions`：当前持仓
+- `paper_orders`：订单明细
+- `paper_nav`：每日净值
+
+详细用法见 [`docs/PAPER_TRADING.md`](docs/PAPER_TRADING.md)。
+
+---
+
+## 前端网站（可选）
 
 项目包含一个基于 React + Hono + tRPC + Drizzle + MySQL 的网站，位于 `web/`：
 
@@ -167,12 +211,30 @@ npm run db:push
 npm run dev
 ```
 
-线上预览：https://h6lwpd6rnrixk.ok.kimi.link
+本地开发地址：`http://localhost:3000`
 
-本地开发启动后访问 http://localhost:3000 查看仪表盘。
+> 线上预览链接当前不可用，请使用本地开发服务器。
 
-详细说明见 `web/web-README.md` 和 `web/DEPLOY.md`。
+---
 
-## 安全提示
+## 文档索引
 
-`.env` 文件包含你的 iFind MCP token，**绝对不要提交到 Git**（已在 `.gitignore` 中排除）。
+| 文档 | 说明 |
+|------|------|
+| [`HANDOFF.md`](HANDOFF.md) | 开发者交接指南、标准工作流、已知问题 |
+| [`docs/PAPER_TRADING.md`](docs/PAPER_TRADING.md) | 模拟交易完整使用说明 |
+| [`docs/DATA.md`](docs/DATA.md) | 数据源、DuckDB 表结构、Release 数据导入 |
+| [`docs/METRICS.md`](docs/METRICS.md) | 回测绩效指标说明 |
+| [`docs/INTEGRATION_ROADMAP.md`](docs/INTEGRATION_ROADMAP.md) | 外部能力接入计划（数据源、模型、实盘等） |
+| [`CHANGELOG.md`](CHANGELOG.md) | 版本变更记录 |
+| [`AGENTS.md`](AGENTS.md) | 给 AI Agent 的规则手册 |
+
+---
+
+## 注意事项
+
+- **iFind MCP 额度**：当前 news/stock 配额紧张，建议日常回测/训练/模拟交易都加 `--cache-only`，避免意外调用。
+- **情绪因子**：默认关闭；等 iFind news MCP 恢复后再尝试 `--sentiment`。
+- **GitHub Actions**：当前账号被禁用 Actions，CI 徽章不会自动更新。
+- **成分股完整性**：沪深 300 成分股通过新浪财经抓取，去重后约 288 只，非完整 300 只。
+- **数据与模型不提交 Git**：`data_store/`、`.env`、模型文件已加入 `.gitignore`。
