@@ -21,9 +21,22 @@ app = typer.Typer(help="AifaQuant - A股 AI 量化研究框架")
 console = Console()
 
 
+def _confirm_ifind_usage(action: str, yes: bool) -> None:
+    """Prompt user before any operation that calls iFind MCP."""
+    if yes:
+        return
+    message = f"以下操作将调用 iFind MCP：{action}。是否继续？"
+    if not typer.confirm(message, default=False):
+        print("[cyan]已取消操作[/cyan]")
+        raise typer.Exit(code=0)
+
+
 @app.command()
-def test_connection():
+def test_connection(
+    yes: bool = typer.Option(False, "--yes", help="Skip iFind usage confirmation"),
+):
     """Test connectivity to iFind MCP stock server and list available tools."""
+    _confirm_ifind_usage("test-connection", yes)
     settings = Settings()
     adapter = StockMCPAdapter(settings)
     try:
@@ -41,9 +54,11 @@ def test_connection():
 
 
 @app.command()
-def list_tools():
+def list_tools(
+    yes: bool = typer.Option(False, "--yes", help="Skip iFind usage confirmation"),
+):
     """Alias for test-connection."""
-    test_connection()
+    test_connection(yes=yes)
 
 
 @app.command()
@@ -66,9 +81,19 @@ def data_update(
     source: str = typer.Option(
         "akshare", "--source", help="Data source: akshare (default) or ifind"
     ),
+    yes: bool = typer.Option(False, "--yes", help="Skip iFind usage confirmation"),
 ):
     """Fetch daily quotes from the configured source and persist to DuckDB."""
     # Map friendly universe names to iFind queries when iFind is selected
+    ifind_used = source == "ifind" or fundamental or macro
+    if ifind_used:
+        action_parts = [f"source={source}"]
+        if fundamental:
+            action_parts.append("fundamental")
+        if macro:
+            action_parts.append("macro")
+        _confirm_ifind_usage("data-update " + ", ".join(action_parts), yes)
+
     if source == "ifind":
         universe_queries = {
             "上证50": "上证50成分股",
@@ -143,8 +168,22 @@ def backtest(
     source: str = typer.Option(
         "akshare", "--source", help="Data source for benchmark index: akshare (default) or ifind"
     ),
+    yes: bool = typer.Option(False, "--yes", help="Skip iFind usage confirmation"),
 ):
     """Run backtest using trained model and TopK-Dropout strategy."""
+    ifind_used = source == "ifind" or (
+        (include_fundamental or include_macro or include_sentiment) and not cache_only
+    )
+    if ifind_used:
+        action_parts = [f"source={source}"]
+        if include_fundamental and not cache_only:
+            action_parts.append("fundamental")
+        if include_macro and not cache_only:
+            action_parts.append("macro")
+        if include_sentiment:
+            action_parts.append("sentiment")
+        _confirm_ifind_usage("backtest " + ", ".join(action_parts), yes)
+
     settings = Settings()
     builder = FeatureBuilder(settings)
 
@@ -290,8 +329,18 @@ def train(
     cache_only: bool = typer.Option(
         False, "--cache-only", help="Only use cached fundamental/macro data; do not call iFind for missing data"
     ),
+    yes: bool = typer.Option(False, "--yes", help="Skip iFind usage confirmation"),
 ):
     """Train a LightGBM stock selection model."""
+    # train defaults include_fundamental=True, include_macro=True
+    if not cache_only or include_sentiment:
+        action_parts = []
+        if not cache_only:
+            action_parts.append("fundamental/macro（如缓存缺失）")
+        if include_sentiment:
+            action_parts.append("sentiment")
+        _confirm_ifind_usage("train " + ", ".join(action_parts), yes)
+
     settings = Settings()
     builder = FeatureBuilder(settings)
     df = builder.build_features(

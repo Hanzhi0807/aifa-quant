@@ -121,8 +121,11 @@ python -m aifa_quant.cli.main data-update \
   --source ifind \
   --symbol-file data_store/csi300_symbols.txt \
   --start 20230101 --end 20241231 \
-  --workers 5 --fundamental --macro
+  --workers 5 --fundamental --macro \
+  --yes
 ```
+
+> 所有会调用 iFind MCP 的命令都会先提示确认；脚本/定时任务请加 `--yes`。
 
 下载过程会逐只股票写入 DuckDB，失败自动跳过。日志可重定向到文件查看进度。
 

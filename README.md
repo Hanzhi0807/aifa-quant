@@ -79,8 +79,11 @@ python -m aifa_quant.cli.main data-update \
   --source ifind \
   --symbol-file data_store/csi300_symbols.txt \
   --start 20230101 --end 20241231 \
-  --workers 5 --fundamental --macro
+  --workers 5 --fundamental --macro \
+  --yes  # 跳过 iFind 使用确认
 ```
+
+> 任何会调用 iFind MCP 的操作都会先提示确认，加 `--yes` 可跳过。
 
 ### 3. 验证数据
 
@@ -124,7 +127,7 @@ python -m aifa_quant.cli.main paper-trade status
 | 命令 | 作用 |
 |------|------|
 | `python -m aifa_quant.cli.main --help` | 查看所有命令 |
-| `python -m aifa_quant.cli.main test-connection` | 测试 iFind MCP 连接 |
+| `python -m aifa_quant.cli.main test-connection --yes` | 测试 iFind MCP 连接 |
 | `python -m aifa_quant.cli.main data-update --start 20230101 --end 20241231` | 用 AkShare 更新日线数据（默认） |
 | `python -m aifa_quant.cli.main db-info` | 查看 DuckDB 数据概览 |
 | `python -m aifa_quant.cli.main train --start 20230101 --end 20241231` | 训练 LightGBM 模型 |
@@ -139,6 +142,7 @@ python -m aifa_quant.cli.main paper-trade status
 - `--no-sentiment`：关闭新闻情绪因子（当前 iFind news MCP 配额紧张，建议关闭）。
 - `--source {akshare,ifind}`：数据源，默认 `akshare`。
 - `--cache-only`：只使用 DuckDB 缓存，不调用 iFind。
+- `--yes`：跳过 iFind 使用确认。
 - `--rolling`：滚动窗口训练，避免未来函数。
 - `--top-k N`：持仓数量。
 - `--freq N`：再平衡周期（天）。
