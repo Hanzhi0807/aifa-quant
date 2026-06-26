@@ -140,7 +140,7 @@ npm run db:push
 npm run dev
 ```
 
-线上预览：https://h6lwpd6rnrixk.ok.kimi.link
+本地启动后访问 http://localhost:5173 查看仪表盘。
 
 详细说明见 `web/web-README.md` 和 `web/DEPLOY.md`。
 
