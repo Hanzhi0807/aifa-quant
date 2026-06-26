@@ -47,6 +47,21 @@
    python -m aifa_quant.cli.main backtest --start 20240101 --end 20241231 --top-k 3 --freq 5
    ```
 
+7. 模拟交易（纸交易）：
+   ```bash
+   # 初始化账户
+   python -m aifa_quant.cli.main paper-trade reset --cash 1000000
+
+   # 先用 dry-run 查看今日信号和计划交易
+   python -m aifa_quant.cli.main paper-trade run --dry-run
+
+   # 执行交易并持久化到 DuckDB
+   python -m aifa_quant.cli.main paper-trade run
+
+   # 查看账户状态
+   python -m aifa_quant.cli.main paper-trade status
+   ```
+
 ## 项目结构
 
 - `config/` - 配置管理（Pydantic Settings + `.env`）
@@ -58,6 +73,7 @@
 - `strategy/` - 策略定义
 - `backtest/` - 回测引擎与绩效分析
 - `execution/` - 模拟/实盘交易执行
+- `paper_trading/` - 模拟交易引擎与状态持久化
 - `cli/` - 命令行入口
 - `notebooks/` - 研究与探索
 
@@ -76,6 +92,11 @@ python -m aifa_quant.cli.main backtest --start 20240101 --end 20241231 --top-k 3
 
 # 滚动训练 + 沪深 300 基准对比
 python -m aifa_quant.cli.main backtest --start 20240101 --end 20241231 --top-k 5 --freq 5 --rolling --benchmark 000300.SH
+
+# 模拟交易（使用缓存的最新交易日作为“今天”）
+python -m aifa_quant.cli.main paper-trade reset --cash 1000000
+python -m aifa_quant.cli.main paper-trade run --date 20241231 --dry-run
+python -m aifa_quant.cli.main paper-trade run --date 20241231
 ```
 
 ## 当前能力
@@ -85,6 +106,7 @@ python -m aifa_quant.cli.main backtest --start 20240101 --end 20241231 --top-k 5
 - 因子：技术面 + 基本面（PE / PB / ROE） + 宏观（CPI / PMI / M2）。
 - 模型：LightGBM 二分类选股，支持滚动窗口 out-of-sample 预测。
 - 回测：自定义 A股规则引擎，支持沪深 300 基准对比与超额收益计算。
+- 模拟交易：基于训练好的模型，每日生成信号并通过 `SimulatedBroker` 虚拟成交，状态持久化到 DuckDB。详见 `docs/PAPER_TRADING.md`。
 
 ## 最新回测结果（示例）
 

@@ -14,6 +14,7 @@ from ..features import FeatureBuilder
 from ..models import LGBRankerModel
 from ..models.registry import ModelRegistry
 from ..models.rolling_trainer import RollingTrainer
+from ..paper_trading import PaperTradingEngine
 from ..strategy import TopKDropoutStrategy
 
 app = typer.Typer(help="AifaQuant - A股 AI 量化研究框架")
@@ -312,6 +313,145 @@ def train(
     print("[bold]Top 10 重要特征:[/bold]")
     for feat, score in model.feature_importance.head(10).items():
         print(f"  {feat}: {score:.0f}")
+
+
+# ------------------------------------------------------------------
+# Paper trading commands
+# ------------------------------------------------------------------
+paper_app = typer.Typer(help="本地模拟交易（纸交易）")
+app.add_typer(paper_app, name="paper-trade")
+
+
+@paper_app.command("reset")
+def paper_reset(
+    cash: float = typer.Option(1_000_000.0, "--cash", help="初始资金"),
+):
+    """清空模拟交易状态并重置为初始资金。"""
+    engine = PaperTradingEngine(initial_cash=cash)
+    engine.reset(cash=cash)
+    print(f"[green]模拟账户已重置，初始资金: {cash:,.2f}[/green]")
+
+
+@paper_app.command("status")
+def paper_status():
+    """查看当前模拟账户的现金、持仓和最新净值。"""
+    store = DuckDBStore()
+    cash = store.load_paper_cash()
+    positions = store.load_paper_positions()
+    nav = store.load_paper_nav()
+
+    if cash is None:
+        print("[yellow]尚未初始化模拟账户，请运行 paper-trade reset[/yellow]")
+        raise typer.Exit(code=1)
+
+    table = Table(title="模拟账户状态")
+    table.add_column("项目", style="cyan")
+    table.add_column("数值", style="magenta")
+    table.add_row("现金", f"{cash:,.2f}")
+    table.add_row("持仓数", str(len(positions)))
+    if not nav.empty:
+        latest = nav.sort_values("updated_at").iloc[-1]
+        table.add_row("最新净值日", str(latest["trade_date"]))
+        table.add_row("总市值", f"{latest['market_value']:,.2f}")
+        table.add_row("总资产", f"{latest['total_value']:,.2f}")
+    console.print(table)
+
+    if not positions.empty:
+        pos_table = Table(title="当前持仓")
+        pos_table.add_column("股票", style="cyan")
+        pos_table.add_column("股数", style="magenta")
+        pos_table.add_column("成本", style="magenta")
+        for _, row in positions.iterrows():
+            pos_table.add_row(str(row["symbol"]), f"{row['shares']}", f"{row['cost_basis']:.3f}")
+        console.print(pos_table)
+
+
+@paper_app.command("run")
+def paper_run(
+    date: str | None = typer.Option(None, "--date", help="交易日期 YYYYMMDD，默认最新缓存日"),
+    model_name: str = typer.Option("lgb_stock_selector", "--model", help="模型名称"),
+    top_k: int = typer.Option(5, "--top-k", help="持仓数量"),
+    freq: int = typer.Option(5, "--freq", help="再平衡周期（天）"),
+    cash: float = typer.Option(1_000_000.0, "--cash", help="初始资金"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="只打印计划交易，不写入数据库"),
+    reset: bool = typer.Option(False, "--reset", help="运行前先清空模拟账户"),
+    include_fundamental: bool = typer.Option(
+        True, "--fundamental/--no-fundamental", help="包含基本面因子"
+    ),
+    include_macro: bool = typer.Option(True, "--macro/--no-macro", help="包含宏观因子"),
+    include_sentiment: bool = typer.Option(
+        False, "--sentiment/--no-sentiment", help="包含新闻情绪因子"
+    ),
+    corr_threshold: float = typer.Option(
+        0.95,
+        "--corr-threshold",
+        help="高相关性特征剔除阈值",
+    ),
+):
+    """运行一次模拟交易循环。"""
+    if reset:
+        engine = PaperTradingEngine(initial_cash=cash)
+        engine.reset(cash=cash)
+        print("[cyan]已重置模拟账户[/cyan]")
+
+    engine = PaperTradingEngine(
+        model_name=model_name,
+        top_k=top_k,
+        rebalance_freq=freq,
+        initial_cash=cash,
+        include_fundamental=include_fundamental,
+        include_macro=include_macro,
+        include_sentiment=include_sentiment,
+        corr_threshold=corr_threshold,
+    )
+
+    try:
+        result = engine.run(trade_date=date, dry_run=dry_run)
+    except Exception as e:
+        print(f"[red]模拟交易失败: {e}[/red]")
+        raise typer.Exit(code=1)
+
+    print(f"\n[bold]交易日期: {result.trade_date.date()}[/bold]")
+    selected = result.signals[result.signals["selected"]]
+    print(f"[cyan]选股数量: {len(selected)} / {len(result.signals)}[/cyan]")
+
+    sig_table = Table(title="选股信号")
+    sig_table.add_column("排名", style="cyan")
+    sig_table.add_column("股票", style="cyan")
+    sig_table.add_column("分数", style="magenta")
+    for i, row in selected.iterrows():
+        sig_table.add_row(str(row["rank"]), str(row["symbol"]), f"{row['score']:.4f}")
+    console.print(sig_table)
+
+    if result.orders:
+        order_table = Table(title="交易计划" if dry_run else "已执行订单")
+        order_table.add_column("股票", style="cyan")
+        order_table.add_column("方向", style="magenta")
+        order_table.add_column("数量", style="magenta")
+        order_table.add_column("状态", style="magenta")
+        for order in result.orders:
+            order_table.add_row(
+                str(order["symbol"]),
+                str(order["side"]).upper(),
+                str(order["quantity"]),
+                str(order.get("status", "planned")),
+            )
+        console.print(order_table)
+    else:
+        print("[yellow]今日无交易[/yellow]")
+
+    nav_table = Table(title="账户净值")
+    nav_table.add_column("项目", style="cyan")
+    nav_table.add_column("数值", style="magenta")
+    nav_table.add_row("现金", f"{result.cash:,.2f}")
+    nav_table.add_row("市值", f"{result.market_value:,.2f}")
+    nav_table.add_row("总资产", f"{result.total_value:,.2f}")
+    console.print(nav_table)
+
+    if dry_run:
+        print("[yellow]这是 dry-run，未写入数据库[/yellow]")
+    else:
+        print("[green]模拟交易状态已持久化到 DuckDB[/green]")
 
 
 if __name__ == "__main__":

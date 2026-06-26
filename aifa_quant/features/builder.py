@@ -61,6 +61,7 @@ class FeatureBuilder:
         include_sentiment: bool = True,
         corr_threshold: float | None = 0.95,
         cache_only: bool = False,
+        prediction_mode: bool = False,
     ) -> pd.DataFrame:
         """Build full feature matrix and label for modeling.
 
@@ -181,10 +182,11 @@ class FeatureBuilder:
         df = pd.concat(frames, ignore_index=True)
         print(f"[green]特征矩阵形状: {df.shape}[/green]")
 
-        # Primary label: future N-day return
-        df["label_return"] = df.groupby("symbol")["close"].shift(-label_horizon) / df["close"] - 1
-        # Binary label: will future return be positive?
-        df["label_binary"] = (df["label_return"] > 0).astype(int)
+        if not prediction_mode:
+            # Primary label: future N-day return
+            df["label_return"] = df.groupby("symbol")["close"].shift(-label_horizon) / df["close"] - 1
+            # Binary label: will future return be positive?
+            df["label_binary"] = (df["label_return"] > 0).astype(int)
 
         # Drop feature columns with too many NaNs
         features = self.feature_columns(df)
@@ -206,8 +208,11 @@ class FeatureBuilder:
             if dropped:
                 print(f"[cyan]特征筛选：已移除 {dropped} 个高相关性特征，剩余 {len(features)} 个[/cyan]")
 
-        # Drop rows with missing label or any remaining NaN in features
-        df = df.dropna(subset=["label_return"] + features)
+        if prediction_mode:
+            df = df.dropna(subset=features)
+        else:
+            # Drop rows with missing label or any remaining NaN in features
+            df = df.dropna(subset=["label_return"] + features)
         return df
 
     def feature_columns(self, df: pd.DataFrame) -> list[str]:
