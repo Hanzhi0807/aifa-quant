@@ -1,0 +1,14 @@
+services:
+  aifa-quant:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: aifa-quant:latest
+    container_name: aifa-quant
+    ports:
+      - "3000:3000"
+    environment:
+      - DUCKDB_PATH=/app/data_store/aifa_quant.duckdb
+    volumes:
+      - ./data_store:/app/data_store
+    restart: unless-stopped

@@ -42,6 +42,7 @@ dependencies = [
     "matplotlib>=3.8.0",
     "seaborn>=0.13.0",
     "plotly>=5.20.0",
+    "akshare>=1.15.0",
 ]
 
 [project.optional-dependencies]

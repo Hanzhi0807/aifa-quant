@@ -62,12 +62,12 @@ python scripts/import_source_data.py data_store/
 
 ```bash
 python -m aifa_quant.cli.main data-update \
-  --universe 沪深300 \
+  --universe 000300 \
   --start 20230101 --end 20241231
 
 # 同时缓存基本面/宏观（需要 iFind token）
 python -m aifa_quant.cli.main data-update \
-  --universe 沪深300 \
+  --universe 000300 \
   --start 20230101 --end 20241231 \
   --fundamental --macro
 ```
@@ -136,6 +136,7 @@ python -m aifa_quant.cli.main paper-trade status
 | `python -m aifa_quant.cli.main paper-trade run --dry-run` | 试跑模拟交易 |
 | `python -m aifa_quant.cli.main paper-trade run` | 执行模拟交易 |
 | `python -m aifa_quant.cli.main paper-trade status` | 查看模拟账户 |
+| `python -m aifa_quant.cli.main factor-analysis --start 20230101 --end 20241231` | 因子有效性分析（IC/RankIC/ICIR/分层/衰减） |
 
 常用参数：
 
@@ -179,21 +180,18 @@ aifa_quant/
 ## 最新回测结果
 
 > 数据：沪深 300 成分股 2023–2024 日线 + 基本面 + 宏观。  
-> 策略：滚动训练，TopK=5，调仓频率 5 日，已剔除高相关性特征。
+> 策略：预训练 LightGBM，TopK=5，调仓频率 5 日，已剔除高相关性特征。
 
 | 指标 | 数值 |
 |------|------|
-| 总收益率 | 336.37% |
-| 年化收益率 | 115.35% |
-| 年化波动率 | 49.21% |
-| 夏普比率 | 2.344 |
-| 最大回撤 | -27.40% |
-| 日胜率 | 55.69% |
-| 沪深 300 基准收益 | 1.21% |
-| 超额收益 | 335.16% |
-| 超额夏普 | 1.940 |
+| 总收益率 | 76.44% |
+| 年化收益率 | 80.63% |
+| 年化波动率 | 75.61% |
+| 夏普比率 | 1.066 |
+| 最大回撤 | -29.88% |
+| 日胜率 | 54.77% |
 
-![滚动回测净值曲线](docs/images/equity_curve_2023_2024_rolling.png)
+回测同时会输出 `data_store/reports/metrics_YYYYMMDD_YYYYMMDD.json` 与净值 CSV，供前端仪表盘直接读取。
 
 ---
 
@@ -220,20 +218,42 @@ python -m aifa_quant.cli.main paper-trade status
 
 ## 前端网站（可选）
 
-项目包含一个基于 React + Hono + tRPC + Drizzle + MySQL 的网站，位于 `web/`：
+项目包含一个基于 React + Hono + tRPC + DuckDB 的网站，位于 `web/`，可直接读取本地 DuckDB 数据，无需 MySQL：
 
 ```bash
 cd web
 npm install
-cp .env.example .env
-# 编辑 .env 填入 DATABASE_URL
-npm run db:push
 npm run dev
 ```
 
 本地开发地址：`http://localhost:3000`
 
+生产构建：
+
+```bash
+npm run build
+NODE_ENV=production node dist/boot.js
+```
+
 > 线上预览链接当前不可用，请使用本地开发服务器。
+
+---
+
+## Docker 一键启动
+
+已提供 `Dockerfile` 与 `docker-compose.yml`，把 Python CLI 与 Web 服务打包在一起：
+
+```bash
+# 构建并启动（需 Docker Desktop / docker daemon 运行中）
+docker compose up --build -d
+```
+
+访问 `http://localhost:3000` 即可查看由本地 DuckDB 驱动的仪表盘。
+
+默认会把当前目录的 `data_store/` 挂载到容器 `/app/data_store`，因此：
+
+- 先在本地用 CLI 准备好数据，或
+- 进入容器运行 CLI：`docker exec -it aifa-quant bash` 后执行 `aifa ...`
 
 ---
 

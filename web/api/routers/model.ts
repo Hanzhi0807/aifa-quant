@@ -3,6 +3,8 @@ import { createRouter, publicQuery } from "../middleware";
 import { getDb } from "../queries/connection";
 import { modelRegistry } from "@db/schema";
 import { eq } from "drizzle-orm";
+import { getDataStorePath } from "../queries/duckdb";
+import { readFile, stat } from "fs/promises";
 
 const mockModels = [
   {
@@ -48,9 +50,49 @@ const mockModels = [
   },
 ];
 
+interface ModelRow {
+  id: number;
+  name: string;
+  path: string;
+  featureColumns: string[];
+  trainStart: string;
+  trainEnd: string;
+  createdAt: Date;
+}
+
+async function readLatestModel(): Promise<ModelRow | null> {
+  try {
+    const path = getDataStorePath("models/lgb_stock_selector_latest.json");
+    const [content, stats] = await Promise.all([
+      readFile(path, "utf-8"),
+      stat(path),
+    ]);
+    const data = JSON.parse(content) as {
+      feature_names?: string[];
+      train_start?: string;
+      train_end?: string;
+    };
+
+    return {
+      id: 1,
+      name: "lgb_stock_selector",
+      path,
+      featureColumns: data.feature_names || [],
+      trainStart: data.train_start || "2018-01-01",
+      trainEnd: data.train_end || "2022-12-31",
+      createdAt: stats.mtime,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export const modelRouter = createRouter({
   list: publicQuery.query(async () => {
     try {
+      const latest = await readLatestModel();
+      if (latest) return [latest];
+
       const db = getDb();
       const models = await db.select().from(modelRegistry);
       return models.map((m) => ({
@@ -68,6 +110,9 @@ export const modelRouter = createRouter({
     .input(z.object({ id: z.number() }))
     .query(async ({ input }) => {
       try {
+        const latest = await readLatestModel();
+        if (latest && latest.id === input.id) return latest;
+
         const db = getDb();
         const [model] = await db
           .select()

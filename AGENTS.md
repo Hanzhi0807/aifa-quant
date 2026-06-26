@@ -59,6 +59,7 @@ python -m aifa_quant.cli.main paper-trade run ...
 | 策略 | 默认 TopK-Dropout | `strategy/topk_dropout.py` |
 | 回测 | A股规则引擎 | `backtest/engine.py` |
 | 模拟交易 | 基于 SimulatedBroker，状态持久化 | `paper_trading/engine.py`, `execution/broker/simulated_broker.py` |
+| Web | React + Hono + tRPC，直接读 DuckDB | `web/` |
 
 ## 5. 新增数据库表
 
@@ -93,3 +94,5 @@ python -m aifa_quant.cli.main paper-trade run ...
 - 沪深 300 成分股不完整（约 288 只），新浪财经抓取去重后缺失部分。
 - 基本面数据部分股票缺失 `report_date`，缓存时会被过滤。
 - Web UI 线上预览链接已过期，本地开发使用 `http://localhost:3000`。
+- Web 生产构建需 `npm run build`；`duckdb` 是外部依赖，不能被打包进 `dist/boot.js`。
+- Docker 一键启动需本地 Docker daemon 运行；Windows 上通常需要启动 Docker Desktop。

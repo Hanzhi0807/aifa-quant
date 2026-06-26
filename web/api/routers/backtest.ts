@@ -3,6 +3,9 @@ import { createRouter, publicQuery } from "../middleware";
 import { getDb } from "../queries/connection";
 import { backtestRuns } from "@db/schema";
 import { desc, eq } from "drizzle-orm";
+import { getDataStorePath } from "../queries/duckdb";
+import { readdir, stat } from "fs/promises";
+import { join } from "path";
 
 // Mock backtest data as fallback
 const mockBacktests = [
@@ -138,6 +141,80 @@ const mockBacktests = [
   },
 ];
 
+interface BacktestRun {
+  id: number;
+  name: string;
+  startDate: string;
+  endDate: string;
+  topK: number;
+  rebalanceFreq: number;
+  rolling: boolean;
+  benchmark: string;
+  status: string;
+  metrics: Record<string, number>;
+  createdAt: Date;
+}
+
+function parseDateString(value: string): string {
+  if (value.length !== 8) return value;
+  const year = value.slice(0, 4);
+  const month = value.slice(4, 6);
+  const day = value.slice(6, 8);
+  return `${year}-${month}-${day}`;
+}
+
+async function listEquityCsvRuns(): Promise<BacktestRun[]> {
+  const reportsDir = getDataStorePath("reports");
+  const files = (await readdir(reportsDir)).filter(
+    (f) => f.startsWith("equity_") && f.endsWith(".csv")
+  );
+  if (files.length === 0) return [];
+
+  const parsed = files
+    .map((filename) => {
+      const base = filename.slice(0, -4); // remove .csv
+      const parts = base.split("_");
+      if (parts.length < 3) return null;
+      const startRaw = parts[1];
+      const endRaw = parts[2];
+      return {
+        filename,
+        startRaw,
+        endRaw,
+        rolling: base.includes("rolling"),
+      };
+    })
+    .filter(Boolean) as Array<{
+    filename: string;
+    startRaw: string;
+    endRaw: string;
+    rolling: boolean;
+  }>;
+
+  parsed.sort((a, b) => a.filename.localeCompare(b.filename));
+
+  const runs: BacktestRun[] = [];
+  for (let i = 0; i < parsed.length; i++) {
+    const item = parsed[i];
+    const stats = await stat(join(reportsDir, item.filename));
+    runs.push({
+      id: i + 1,
+      name: `回测 ${item.startRaw}-${item.endRaw}`,
+      startDate: parseDateString(item.startRaw),
+      endDate: parseDateString(item.endRaw),
+      topK: 10,
+      rebalanceFreq: 5,
+      rolling: item.rolling,
+      benchmark: "沪深300",
+      status: "completed",
+      metrics: {},
+      createdAt: stats.mtime,
+    });
+  }
+
+  return runs;
+}
+
 export const backtestRouter = createRouter({
   list: publicQuery
     .input(
@@ -150,6 +227,13 @@ export const backtestRouter = createRouter({
     )
     .query(async ({ input }) => {
       try {
+        const csvRuns = await listEquityCsvRuns();
+        if (csvRuns.length > 0) {
+          const limit = input?.limit ?? 20;
+          const offset = input?.offset ?? 0;
+          return csvRuns.slice(offset, offset + limit);
+        }
+
         const db = getDb();
         const limit = input?.limit ?? 20;
         const offset = input?.offset ?? 0;
@@ -172,6 +256,10 @@ export const backtestRouter = createRouter({
     .input(z.object({ id: z.number() }))
     .query(async ({ input }) => {
       try {
+        const csvRuns = await listEquityCsvRuns();
+        const match = csvRuns.find((r) => r.id === input.id);
+        if (match) return match;
+
         const db = getDb();
         const [run] = await db
           .select()

@@ -3,6 +3,9 @@ import { createRouter, publicQuery } from "../middleware";
 import { getDb } from "../queries/connection";
 import { backtestRuns } from "@db/schema";
 import { eq } from "drizzle-orm";
+import { getDataStorePath } from "../queries/duckdb";
+import { readdir, readFile } from "fs/promises";
+import { join } from "path";
 
 const mockMetrics: Record<number, Record<string, number>> = {
   1: {
@@ -77,11 +80,31 @@ const mockMetrics: Record<number, Record<string, number>> = {
   },
 };
 
+async function readLatestMetricsJson(): Promise<Record<string, number> | null> {
+  try {
+    const reportsDir = getDataStorePath("reports");
+    const files = await readdir(reportsDir);
+    const jsonFiles = files
+      .filter((f) => f.startsWith("metrics_") && f.endsWith(".json"))
+      .sort();
+    if (jsonFiles.length === 0) return null;
+
+    const latest = jsonFiles[jsonFiles.length - 1];
+    const content = await readFile(join(reportsDir, latest), "utf-8");
+    return JSON.parse(content) as Record<string, number>;
+  } catch {
+    return null;
+  }
+}
+
 export const metricsRouter = createRouter({
   getByBacktestId: publicQuery
     .input(z.object({ backtestId: z.number() }))
     .query(async ({ input }) => {
       try {
+        const metrics = await readLatestMetricsJson();
+        if (metrics) return metrics;
+
         const db = getDb();
         const [run] = await db
           .select({ metrics: backtestRuns.metrics })

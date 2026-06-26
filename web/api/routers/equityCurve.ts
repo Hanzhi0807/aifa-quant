@@ -2,14 +2,19 @@ import { z } from "zod";
 import { createRouter, publicQuery } from "../middleware";
 import { getDb } from "../queries/connection";
 import { equityCurve } from "@db/schema";
-import { eq, asc } from "drizzle-orm";
+import { asc } from "drizzle-orm";
+import { isDuckDBAvailable, queryDuckDB, getDataStorePath } from "../queries/duckdb";
+import { readdir, readFile } from "fs/promises";
+import { join } from "path";
 
-// Generate mock equity curve data
-function generateMockEquityCurve(): {
+interface EquityPoint {
   tradeDate: string;
   normalizedValue: number;
-  benchmarkNormalized: number;
-}[] {
+  benchmarkNormalized?: number;
+}
+
+// Generate mock equity curve data
+function generateMockEquityCurve(): EquityPoint[] {
   const tradingDays: { date: string; portfolio: number; benchmark: number }[] = [];
   const start = new Date("2023-01-03");
   const end = new Date("2024-12-31");
@@ -43,11 +48,76 @@ function generateMockEquityCurve(): {
 
 const mockEquityCurve = generateMockEquityCurve();
 
+function parseEquityCsv(content: string): EquityPoint[] {
+  const lines = content.trim().split("\n");
+  if (lines.length < 2) return [];
+
+  const rows: { tradeDate: string; totalValue: number }[] = [];
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    const parts = line.split(",");
+    if (parts.length < 4) continue;
+    const tradeDate = parts[0];
+    const totalValue = parseFloat(parts[3]);
+    if (isNaN(totalValue)) continue;
+    rows.push({ tradeDate, totalValue });
+  }
+
+  if (rows.length === 0) return [];
+  const firstValue = rows[0].totalValue;
+  return rows.map((r) => ({
+    tradeDate: r.tradeDate,
+    normalizedValue: Number((r.totalValue / firstValue).toFixed(6)),
+  }));
+}
+
+async function readLatestEquityCsv(): Promise<EquityPoint[] | null> {
+  try {
+    const reportsDir = getDataStorePath("reports");
+    const files = await readdir(reportsDir);
+    const csvFiles = files
+      .filter((f) => f.startsWith("equity_") && f.endsWith(".csv"))
+      .sort();
+    if (csvFiles.length === 0) return null;
+
+    const latest = csvFiles[csvFiles.length - 1];
+    const content = await readFile(join(reportsDir, latest), "utf-8");
+    return parseEquityCsv(content);
+  } catch {
+    return null;
+  }
+}
+
+async function getDuckDBEquityCurve(): Promise<EquityPoint[] | null> {
+  if (!isDuckDBAvailable()) return null;
+  const rows = await queryDuckDB<{ trade_date: Date; total_value: number }>(
+    "SELECT trade_date, total_value FROM paper_nav ORDER BY trade_date"
+  );
+  if (rows.length < 2) return null;
+
+  const firstValue = rows[0].total_value;
+  return rows.map((r) => ({
+    tradeDate: new Date(r.trade_date).toISOString().split("T")[0],
+    normalizedValue: Number((r.total_value / firstValue).toFixed(6)),
+  }));
+}
+
 export const equityCurveRouter = createRouter({
   getByBacktestId: publicQuery
     .input(z.object({ backtestId: z.number() }))
-    .query(async ({ input }) => {
+    .query(async () => {
       try {
+        const duckdbCurve = await getDuckDBEquityCurve();
+        if (duckdbCurve && duckdbCurve.length > 0) {
+          return duckdbCurve;
+        }
+
+        const csvCurve = await readLatestEquityCsv();
+        if (csvCurve && csvCurve.length > 0) {
+          return csvCurve;
+        }
+
         const db = getDb();
         const curves = await db
           .select({
@@ -56,7 +126,6 @@ export const equityCurveRouter = createRouter({
             benchmarkNormalized: equityCurve.benchmarkNormalized,
           })
           .from(equityCurve)
-          .where(eq(equityCurve.backtestId, input.backtestId))
           .orderBy(asc(equityCurve.tradeDate));
 
         return curves.map((c) => ({

@@ -3,6 +3,8 @@ import { createRouter, publicQuery } from "../middleware";
 import { getDb } from "../queries/connection";
 import { factorImportance } from "@db/schema";
 import { eq, asc } from "drizzle-orm";
+import { getDataStorePath } from "../queries/duckdb";
+import { readFile } from "fs/promises";
 
 const mockFactors = [
   { id: 1, modelId: 1, factorName: "momentum_60d", importance: 0.15234, rank: 1 },
@@ -22,6 +24,43 @@ const mockFactors = [
   { id: 15, modelId: 1, factorName: "industry_momentum", importance: 0.02186, rank: 15 },
 ];
 
+interface FactorRow {
+  id: number;
+  modelId: number;
+  factorName: string;
+  importance: number;
+  rank: number;
+}
+
+async function readFactorImportance(): Promise<FactorRow[] | null> {
+  try {
+    const path = getDataStorePath("models/lgb_stock_selector_latest.json");
+    const content = await readFile(path, "utf-8");
+    const data = JSON.parse(content) as {
+      feature_importance?: Record<string, number>;
+    };
+
+    if (!data.feature_importance) return null;
+
+    const entries = Object.entries(data.feature_importance)
+      .map(([factorName, importance]) => ({
+        factorName,
+        importance: Number(importance),
+      }))
+      .sort((a, b) => b.importance - a.importance);
+
+    return entries.map((entry, index) => ({
+      id: index + 1,
+      modelId: 1,
+      factorName: entry.factorName,
+      importance: entry.importance,
+      rank: index + 1,
+    }));
+  } catch {
+    return null;
+  }
+}
+
 export const factorRouter = createRouter({
   getByModelId: publicQuery
     .input(
@@ -32,14 +71,21 @@ export const factorRouter = createRouter({
     )
     .query(async ({ input }) => {
       try {
+        const factors = await readFactorImportance();
+        if (factors) {
+          return factors
+            .filter((f) => f.modelId === input.modelId)
+            .slice(0, input.limit);
+        }
+
         const db = getDb();
-        const factors = await db
+        const rows = await db
           .select()
           .from(factorImportance)
           .where(eq(factorImportance.modelId, input.modelId))
           .orderBy(asc(factorImportance.rank))
           .limit(input.limit);
-        return factors.map((f) => ({
+        return rows.map((f) => ({
           ...f,
           importance: Number(f.importance),
         }));

@@ -1,10 +1,14 @@
 """Command-line interface for AifaQuant."""
 
+import json
+
+import pandas as pd
 import typer
 from rich import print
 from rich.console import Console
 from rich.table import Table
 
+from ..analysis import compute_factor_decay, compute_ic_summary, compute_quantile_returns
 from ..backtest import BacktestEngine, compute_metrics
 from ..config.settings import Settings
 from ..data.adapters import AkShareAdapter, IndexMCPAdapter, StockMCPAdapter
@@ -270,11 +274,16 @@ def backtest(
         table.add_row("超额夏普", f"{metrics['excess_sharpe']:.3f}")
     console.print(table)
 
-    # Save equity curve and plot
+    # Save equity curve, metrics and plot
     report_dir = settings.data_dir_path / "reports"
     report_dir.mkdir(parents=True, exist_ok=True)
     report_path = report_dir / f"equity_{start}_{end}.csv"
     equity.to_csv(report_path, index=False)
+
+    suffix = "_rolling" if rolling else ""
+    metrics_path = report_dir / f"metrics_{start}_{end}{suffix}.json"
+    with open(metrics_path, "w", encoding="utf-8") as f:
+        json.dump(metrics, f, ensure_ascii=False, indent=2, default=str)
 
     try:
         import matplotlib.pyplot as plt
@@ -290,13 +299,135 @@ def backtest(
         plt.ylabel("Normalized Value")
         plt.legend()
         plt.grid(True)
-        suffix = "_rolling" if rolling else ""
         plot_path = report_dir / f"equity_{start}_{end}{suffix}.png"
         plt.savefig(plot_path)
         plt.close()
         print(f"[green]权益曲线图已保存: {plot_path}[/green]")
     except Exception as e:
         print(f"[yellow]绘图失败: {e}[/yellow]")
+
+
+
+@app.command()
+def factor_analysis(
+    start: str = typer.Option("20230101", "--start", help="Start date YYYYMMDD"),
+    end: str = typer.Option("20241231", "--end", help="End date YYYYMMDD"),
+    feature: str | None = typer.Option(None, "--feature", help="Analyze a single feature; if omitted, analyze all features"),
+    method: str = typer.Option("spearman", "--method", help="IC method: pearson or spearman"),
+    horizon: int = typer.Option(5, "--horizon", help="Forward return horizon in days"),
+    n_quantiles: int = typer.Option(10, "--quantiles", help="Number of quantile buckets"),
+    include_sentiment: bool = typer.Option(
+        False, "--sentiment/--no-sentiment", help="Include news sentiment factors"
+    ),
+    corr_threshold: float = typer.Option(0.95, "--corr-threshold", help="Drop highly correlated features"),
+    cache_only: bool = typer.Option(
+        True, "--cache-only", help="Only use cached fundamental/macro data"
+    ),
+    yes: bool = typer.Option(False, "--yes", help="Skip iFind usage confirmation"),
+):
+    """Analyze factor effectiveness (IC/RankIC/ICIR/quantile/decay)."""
+    if not cache_only or include_sentiment:
+        action_parts = []
+        if not cache_only:
+            action_parts.append("fundamental/macro（如缓存缺失）")
+        if include_sentiment:
+            action_parts.append("sentiment")
+        _confirm_ifind_usage("factor-analysis " + ", ".join(action_parts), yes)
+
+    settings = Settings()
+    builder = FeatureBuilder(settings)
+    print("[yellow]正在构建特征...[/yellow]")
+    df = builder.build_features(
+        start_date=start,
+        end_date=end,
+        label_horizon=horizon,
+        include_sentiment=include_sentiment,
+        corr_threshold=corr_threshold,
+        cache_only=cache_only,
+    )
+    if df.empty:
+        print("[red]没有可用特征数据[/red]")
+        raise typer.Exit(code=1)
+
+    feature_cols = builder.feature_columns(df)
+    if feature and feature not in feature_cols:
+        print(f"[red]指定因子不存在: {feature}[/red]")
+        raise typer.Exit(code=1)
+
+    target_features = [feature] if feature else feature_cols
+    forward_col = "label_return"
+
+    report_dir = settings.data_dir_path / "reports" / "factor_analysis"
+    report_dir.mkdir(parents=True, exist_ok=True)
+
+    # IC summary for all target features
+    print(f"[yellow]正在计算 {len(target_features)} 个因子的 IC...[/yellow]")
+    summaries = []
+    for feat in target_features:
+        summary = compute_ic_summary(df, feat, forward_col, method=method)
+        if summary:
+            summaries.append(summary)
+
+    if not summaries:
+        print("[red]无法计算任何因子的 IC[/red]")
+        raise typer.Exit(code=1)
+
+    summary_df = pd.DataFrame(summaries).sort_values("icir", ascending=False)
+    summary_path = report_dir / f"ic_summary_{start}_{end}.csv"
+    summary_df.to_csv(summary_path, index=False)
+
+    table = Table(title="因子有效性摘要（按 ICIR 排序）")
+    table.add_column("因子", style="cyan")
+    table.add_column("Mean IC", style="magenta")
+    table.add_column("ICIR", style="magenta")
+    table.add_column("胜率", style="magenta")
+    table.add_column("期数", style="magenta")
+    for _, row in summary_df.head(20).iterrows():
+        table.add_row(
+            str(row["feature"]),
+            f"{row['mean_ic']:.4f}",
+            f"{row['icir']:.3f}",
+            f"{row['win_rate']:.2%}",
+            str(int(row["n_periods"])),
+        )
+    console.print(table)
+    print(f"[green]完整 IC 摘要已保存: {summary_path}[/green]")
+
+    # Single-feature deep analysis
+    if feature:
+        print(f"[yellow]正在分析因子 {feature} 的分层收益与衰减...[/yellow]")
+        quantile_df = compute_quantile_returns(df, feature, forward_col, n_quantiles=n_quantiles)
+        quantile_path = report_dir / f"quantile_{feature}_{start}_{end}.csv"
+        quantile_df.to_csv(quantile_path, index=False)
+
+        decay_df = compute_factor_decay(df, feature, price_col="close", method=method)
+        decay_path = report_dir / f"decay_{feature}_{start}_{end}.csv"
+        decay_df.to_csv(decay_path, index=False)
+
+        try:
+            from ..analysis.factor_analysis import plot_ic_distribution, plot_quantile_returns
+
+            ic_series = pd.Series(
+                [s["mean_ic"] for s in summaries if s["feature"] == feature],
+                index=[pd.Timestamp.now()],
+            )
+            # Actually plot the IC time series
+            from ..analysis.factor_analysis import compute_ic
+
+            ic_series = compute_ic(df, feature, forward_col, method)
+            plot_ic_distribution(
+                ic_series,
+                title=f"{feature} IC Distribution",
+                output_path=str(report_dir / f"ic_hist_{feature}_{start}_{end}.png"),
+            )
+            plot_quantile_returns(
+                quantile_df,
+                title=f"{feature} Quantile Returns",
+                output_path=str(report_dir / f"quantile_{feature}_{start}_{end}.png"),
+            )
+            print(f"[green]图表已保存到 {report_dir}[/green]")
+        except Exception as e:
+            print(f"[yellow]绘图失败: {e}[/yellow]")
 
 
 @app.command()

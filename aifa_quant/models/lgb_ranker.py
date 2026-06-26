@@ -70,8 +70,13 @@ class LGBRankerModel(BaseModel):
         path.parent.mkdir(parents=True, exist_ok=True)
         joblib.dump(self.model, path)
         meta_path = path.with_suffix(".json")
+        meta = {
+            "feature_names": self.feature_names,
+            "params": self.params,
+            "feature_importance": self.feature_importance.to_dict(),
+        }
         with open(meta_path, "w", encoding="utf-8") as f:
-            json.dump({"feature_names": self.feature_names, "params": self.params}, f)
+            json.dump(meta, f, ensure_ascii=False, indent=2)
 
     def load(self, path: str) -> None:
         path = Path(path)
