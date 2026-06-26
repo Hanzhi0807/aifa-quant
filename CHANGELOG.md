@@ -46,6 +46,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- 新增 `AkShareAdapter`（`data/adapters/akshare_adapter.py`），作为默认免费数据源：
+  - A 股日线行情（前复权）
+  - 指数行情（沪深 300、上证 50 等）
+  - 指数成分股列表
+- CLI `data-update` 默认使用 AkShare，新增 `--source {akshare,ifind}`。
+- CLI `backtest` 新增 `--source`，基准指数默认从 AkShare 获取。
+- 日线数据更新支持顺序下载 + 请求间隔，避免被公开数据网站封 IP。
+
+### Changed
+- `requirements.txt` 增加 `akshare>=1.18.0`。
+- 基本面（PE/PB/ROE）和宏观（CPI/PMI/M2）仍优先使用 iFind MCP。
+
 ### Planned
 - 接入新闻情绪因子与另类数据（待 iFind 配额恢复）。
 - 增加参数优化与多策略对比。

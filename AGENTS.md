@@ -26,9 +26,11 @@ ruff check aifa_quant tests
 pytest -q
 ```
 
-### 3.2 避免意外调用 iFind MCP
+### 3.2 数据源选择
 
-iFind MCP 额度紧张。回测、训练、模拟交易默认应使用本地缓存：
+- 默认数据源是 **AkShare**（免费），用于日线行情、指数行情、成分股列表。
+- iFind MCP 只用于基本面（PE/PB/ROE）、宏观（CPI/PMI/M2）、新闻情绪（当前不可用）。
+- iFind MCP 额度紧张，回测、训练、模拟交易默认应使用本地缓存：
 
 ```bash
 python -m aifa_quant.cli.main backtest --no-sentiment --cache-only ...

@@ -59,6 +59,10 @@ class StockMCPAdapter(BaseMCPAdapter):
         self._tool_map = mapping
         return mapping
 
+    def get_stock_universe(self, query: str = "A股上市股票列表") -> pd.DataFrame:
+        """Fetch the list of A-share stocks (alias for get_stock_list)."""
+        return self.get_stock_list(query)
+
     def get_stock_list(self, query: str = "A股上市股票列表") -> pd.DataFrame:
         """Fetch the list of A-share stocks."""
         tools = self.discover_tools()

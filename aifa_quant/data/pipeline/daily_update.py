@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 import pandas as pd
 
 from ...config.settings import Settings
-from ..adapters import StockMCPAdapter
+from ..adapters import AkShareAdapter, StockMCPAdapter
 from ..storage import DuckDBStore
 
 
@@ -40,24 +40,49 @@ class RateLimiter:
 
 
 class DailyUpdatePipeline:
-    """Incremental daily quote update pipeline."""
+    """Incremental daily quote update pipeline.
 
-    def __init__(self, settings: Settings | None = None, max_workers: int = 3):
+    Supports two data sources:
+      - "akshare" (default): free web-scraped daily/index data.
+      - "ifind": iFind MCP (requires token).
+
+    Fundamental / macro data still comes from iFind MCP when requested.
+    """
+
+    def __init__(
+        self,
+        settings: Settings | None = None,
+        max_workers: int = 3,
+        data_source: str = "akshare",
+    ):
         self.settings = settings or Settings()
-        self.adapter = StockMCPAdapter(self.settings)
+        self.data_source = data_source.lower()
         self.store = DuckDBStore(self.settings)
         self.max_workers = max_workers
         self._rate_limiter = RateLimiter(max_requests=5, window_seconds=1.0)
+
+        if self.data_source == "akshare":
+            self._daily_adapter = AkShareAdapter(self.settings)
+            # Fundamental data still uses iFind MCP
+            self._fundamental_adapter = StockMCPAdapter(self.settings)
+        elif self.data_source == "ifind":
+            self._daily_adapter = StockMCPAdapter(self.settings)
+            self._fundamental_adapter = self._daily_adapter
+        else:
+            raise ValueError(f"Unsupported data source: {data_source}")
 
     def fetch_stock_universe(
         self,
         query: str = "上证50成分股",
         sample_size: int | None = None,
     ) -> list[str]:
-        """Fetch stock list from MCP. Falls back to a default sample on error."""
+        """Fetch stock list from configured source. Falls back to a default sample on error."""
         try:
-            df = self.adapter.get_stock_list(query)
-            symbols = df.iloc[:, 0].astype(str).tolist()
+            if hasattr(self._daily_adapter, "get_stock_universe"):
+                symbols = self._daily_adapter.get_stock_universe(query)
+            else:
+                df = self._daily_adapter.get_stock_list(query)
+                symbols = df.iloc[:, 0].astype(str).tolist()
             if sample_size:
                 symbols = symbols[:sample_size]
             return symbols
@@ -113,13 +138,46 @@ class DailyUpdatePipeline:
                 continue
             tasks.append((sym, sym_start))
 
+        if self.data_source == "akshare":
+            return self._update_daily_quotes_akshare(tasks, end_date)
+        return self._update_daily_quotes_ifind(tasks, end_date)
+
+    def _update_daily_quotes_akshare(
+        self,
+        tasks: list[tuple[str, str]],
+        end_date: str,
+    ) -> int:
+        """Sequential download with polite delay for AkShare."""
+        total_rows = 0
+        print(f"[INFO] 开始顺序下载 {len(tasks)} 只股票（AkShare，含请求间隔）", flush=True)
+        for symbol, sym_start in tasks:
+            try:
+                df = self._daily_adapter.get_daily_data(symbol, start_date=sym_start, end_date=end_date)
+                if df is None or df.empty:
+                    print(f"[WARN] {symbol}: 无数据", flush=True)
+                    continue
+                rows = self.store.save_daily_quotes(df)
+                total_rows += rows
+                print(f"[OK] {symbol}: 新增/更新 {rows} 条", flush=True)
+            except Exception as e:
+                print(f"[ERROR] {symbol}: {e}", flush=True)
+            # Polite delay to avoid being blocked by public data websites
+            time.sleep(0.5)
+        return total_rows
+
+    def _update_daily_quotes_ifind(
+        self,
+        tasks: list[tuple[str, str]],
+        end_date: str,
+    ) -> int:
+        """Concurrent download with iFind MCP rate limiting."""
         total_rows = 0
 
         def fetch_one(symbol: str, sym_start: str) -> tuple[str, pd.DataFrame | None, Exception | None]:
             # Respect iFind MCP rate limit: 5 requests / second
             self._rate_limiter.acquire()
             try:
-                df = self.adapter.get_daily_data(symbol, start_date=sym_start, end_date=end_date)
+                df = self._daily_adapter.get_daily_data(symbol, start_date=sym_start, end_date=end_date)
                 return symbol, df, None
             except Exception as e:
                 return symbol, None, e
@@ -163,7 +221,7 @@ class DailyUpdatePipeline:
             print(f"[{i}/{len(missing)}] {symbol} 基本面数据")
             try:
                 self._rate_limiter.acquire()
-                df = self.adapter.get_financial_data(symbol, start_date, end_date)
+                df = self._fundamental_adapter.get_financial_data(symbol, start_date, end_date)
                 if not df.empty:
                     total_rows += self.store.save_fundamental_data(df)
             except Exception as e:

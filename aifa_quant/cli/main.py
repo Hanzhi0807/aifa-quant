@@ -7,7 +7,7 @@ from rich.table import Table
 
 from ..backtest import BacktestEngine, compute_metrics
 from ..config.settings import Settings
-from ..data.adapters import IndexMCPAdapter, StockMCPAdapter
+from ..data.adapters import AkShareAdapter, IndexMCPAdapter, StockMCPAdapter
 from ..data.pipeline import DailyUpdatePipeline
 from ..data.storage import DuckDBStore
 from ..features import FeatureBuilder
@@ -63,21 +63,27 @@ def data_update(
     skip_daily: bool = typer.Option(
         False, "--skip-daily", help="Skip daily quote download (useful when only updating fundamental/macro)"
     ),
+    source: str = typer.Option(
+        "akshare", "--source", help="Data source: akshare (default) or ifind"
+    ),
 ):
-    """Fetch daily quotes from iFind MCP and persist to DuckDB."""
-    # Map friendly universe names to iFind queries
-    universe_queries = {
-        "上证50": "上证50成分股",
-        "沪深300": "沪深300成分股",
-        "全部A股": "A股上市股票列表",
-    }
-    query = universe_queries.get(universe, universe)
+    """Fetch daily quotes from the configured source and persist to DuckDB."""
+    # Map friendly universe names to iFind queries when iFind is selected
+    if source == "ifind":
+        universe_queries = {
+            "上证50": "上证50成分股",
+            "沪深300": "沪深300成分股",
+            "全部A股": "A股上市股票列表",
+        }
+        query = universe_queries.get(universe, universe)
+    else:
+        query = universe
 
     if symbol_file:
         from pathlib import Path
         symbols = [line.strip() for line in Path(symbol_file).read_text(encoding="utf-8").splitlines() if line.strip()]
 
-    pipeline = DailyUpdatePipeline(Settings(), max_workers=workers)
+    pipeline = DailyUpdatePipeline(Settings(), max_workers=workers, data_source=source)
     if symbols:
         target_symbols = symbols
     else:
@@ -133,6 +139,9 @@ def backtest(
     ),
     cache_only: bool = typer.Option(
         False, "--cache-only", help="Only use cached fundamental/macro data; do not call iFind for missing data"
+    ),
+    source: str = typer.Option(
+        "akshare", "--source", help="Data source for benchmark index: akshare (default) or ifind"
     ),
 ):
     """Run backtest using trained model and TopK-Dropout strategy."""
@@ -195,7 +204,10 @@ def backtest(
     # Fetch benchmark
     bench_df = None
     try:
-        index_adapter = IndexMCPAdapter(settings)
+        if source == "akshare":
+            index_adapter = AkShareAdapter(settings)
+        else:
+            index_adapter = IndexMCPAdapter(settings)
         bench_df = index_adapter.get_daily_data(benchmark, start_date=start, end_date=end)
         if bench_df.empty or "close" not in bench_df.columns:
             bench_df = None

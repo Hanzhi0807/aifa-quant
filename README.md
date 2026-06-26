@@ -6,7 +6,7 @@
 
 AifaQuant 是一个本地优先的 **A股 AI 量化研究与回测框架**，覆盖数据获取、因子工程、模型训练、策略回测到模拟交易的完整闭环。
 
-- **数据源**：同花顺 iFind MCP（Streamable HTTP）。
+- **数据源**：默认 [AkShare](https://www.akshare.xyz/)（免费），日线/指数/成分股无需 token；基本面/宏观/情绪仍走同花顺 iFind MCP。
 - **存储**：本地 DuckDB，日线、基本面、宏观数据一次缓存，离线复用。
 - **模型**：LightGBM 二分类选股，输出上涨概率。
 - **策略**：TopK-Dropout 轮动。
@@ -58,10 +58,25 @@ python scripts/import_source_data.py data_store/
  Release 包含沪深 300 成分股 2023–2024 日线 + 基本面 + 宏观数据：
  [v0.4.0-data-full](https://github.com/ivyzhi0807/aifa-quant/releases/tag/v0.4.0-data-full)
 
-**或从 iFind MCP 下载（需要 token 和额度）**
+**或直接用 AkShare 下载（默认，免费）**
 
 ```bash
 python -m aifa_quant.cli.main data-update \
+  --universe 沪深300 \
+  --start 20230101 --end 20241231
+
+# 同时缓存基本面/宏观（需要 iFind token）
+python -m aifa_quant.cli.main data-update \
+  --universe 沪深300 \
+  --start 20230101 --end 20241231 \
+  --fundamental --macro
+```
+
+**或强制走 iFind MCP 下载（需要 token 和额度）**
+
+```bash
+python -m aifa_quant.cli.main data-update \
+  --source ifind \
   --symbol-file data_store/csi300_symbols.txt \
   --start 20230101 --end 20241231 \
   --workers 5 --fundamental --macro
@@ -110,7 +125,7 @@ python -m aifa_quant.cli.main paper-trade status
 |------|------|
 | `python -m aifa_quant.cli.main --help` | 查看所有命令 |
 | `python -m aifa_quant.cli.main test-connection` | 测试 iFind MCP 连接 |
-| `python -m aifa_quant.cli.main data-update --start 20230101 --end 20241231` | 更新日线数据 |
+| `python -m aifa_quant.cli.main data-update --start 20230101 --end 20241231` | 用 AkShare 更新日线数据（默认） |
 | `python -m aifa_quant.cli.main db-info` | 查看 DuckDB 数据概览 |
 | `python -m aifa_quant.cli.main train --start 20230101 --end 20241231` | 训练 LightGBM 模型 |
 | `python -m aifa_quant.cli.main backtest --start 20240101 --end 20241231 --top-k 5` | 回测 |
@@ -122,6 +137,7 @@ python -m aifa_quant.cli.main paper-trade status
 常用参数：
 
 - `--no-sentiment`：关闭新闻情绪因子（当前 iFind news MCP 配额紧张，建议关闭）。
+- `--source {akshare,ifind}`：数据源，默认 `akshare`。
 - `--cache-only`：只使用 DuckDB 缓存，不调用 iFind。
 - `--rolling`：滚动窗口训练，避免未来函数。
 - `--top-k N`：持仓数量。
