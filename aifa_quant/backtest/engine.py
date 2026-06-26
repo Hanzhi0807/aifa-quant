@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 
+from ..core.trading_config import TradingConfig
 from ..models.base import BaseModel
 from ..strategy.base import BaseStrategy
 
@@ -30,6 +31,7 @@ class BacktestEngine:
 
     def __init__(
         self,
+        config: TradingConfig | None = None,
         initial_cash: float = 1_000_000.0,
         commission_rate: float = 0.0003,
         stamp_duty_rate: float = 0.001,  # A-share sell-side stamp duty
@@ -37,23 +39,38 @@ class BacktestEngine:
         slippage: float = 0.0,
         rebalance_freq: int = 5,
     ):
-        self.initial_cash = initial_cash
-        self.commission_rate = commission_rate
-        self.stamp_duty_rate = stamp_duty_rate
-        self.min_commission = min_commission
-        self.slippage = slippage
-        self.rebalance_freq = rebalance_freq
+        if config is None:
+            config = TradingConfig(
+                initial_cash=initial_cash,
+                commission_rate=commission_rate,
+                stamp_duty_rate=stamp_duty_rate,
+                min_commission=min_commission,
+                slippage=slippage,
+                rebalance_freq=rebalance_freq,
+            )
+        self.config = config
+        self.initial_cash = config.initial_cash
+        self.commission_rate = config.commission_rate
+        self.stamp_duty_rate = config.stamp_duty_rate
+        self.min_commission = config.min_commission
+        self.slippage = config.slippage
+        self.rebalance_freq = config.rebalance_freq
 
-        self.cash: float = initial_cash
+        self.cash: float = self.initial_cash
         self.positions: dict[str, Position] = {}
         self.trades: list[Trade] = []
         self.daily_values: list[dict] = []
+
+        self.quotes_by_date: dict[pd.Timestamp, pd.DataFrame] = {}
+        self.prev_day_quotes: pd.DataFrame | None = None
 
     def reset(self) -> None:
         self.cash = self.initial_cash
         self.positions = {}
         self.trades = []
         self.daily_values = []
+        self.quotes_by_date = {}
+        self.prev_day_quotes = None
 
     def run(
         self,
@@ -83,6 +100,9 @@ class BacktestEngine:
         if len(dates) == 0:
             return pd.DataFrame()
 
+        # Pre-build date index for O(1) lookup instead of filtering the full frame each day.
+        self.quotes_by_date = {d: g for d, g in quotes.groupby("trade_date")}
+
         # Add prediction scores if not already present (e.g. from rolling trainer)
         if "pred_score" not in features.columns:
             feat_cols = [c for c in features.columns if c in model.feature_names]
@@ -91,8 +111,8 @@ class BacktestEngine:
         last_rebalance = None
         target_symbols: set = set()
 
-        for i, date in enumerate(dates):
-            day_quotes = quotes[quotes["trade_date"] == date]
+        for date in dates:
+            day_quotes = self.quotes_by_date[date]
             day_features = features[features["trade_date"] == date]
 
             # Rebalance on first day and every rebalance_freq days
@@ -111,6 +131,7 @@ class BacktestEngine:
 
             # Mark to market
             self._record_value(date, day_quotes)
+            self.prev_day_quotes = day_quotes
 
         return pd.DataFrame(self.daily_values)
 
@@ -126,19 +147,24 @@ class BacktestEngine:
             if sym not in target_symbols:
                 self._sell_all(date, day_quotes, sym)
 
-        if not target_symbols:
+        # Determine targets that have price data today
+        available_targets = [
+            sym for sym in target_symbols
+            if sym in day_quotes["symbol"].values
+        ]
+        if not available_targets:
             return
 
-        # Equal weight allocation
-        target_value_per_stock = self.cash / len(target_symbols)
-        for sym in target_symbols:
+        # Total portfolio value after unwanted positions have been liquidated
+        total_portfolio_value = self.cash + self._market_value(day_quotes)
+        target_value_per_stock = total_portfolio_value / len(available_targets)
+
+        for sym in available_targets:
             row = day_quotes[day_quotes["symbol"] == sym]
-            if row.empty:
-                continue
             price = float(row.iloc[0]["close"])
 
             # Skip if hits upper limit (cannot buy)
-            prev_close = self._prev_close(sym, day_quotes)
+            prev_close = self._prev_close(sym)
             if prev_close and price >= prev_close * 1.095:
                 continue
 
@@ -221,12 +247,7 @@ class BacktestEngine:
         self._sell(date, symbol, pos.shares, price)
 
     def _record_value(self, date: pd.Timestamp, day_quotes: pd.DataFrame) -> None:
-        market_value = 0.0
-        for sym, pos in self.positions.items():
-            row = day_quotes[day_quotes["symbol"] == sym]
-            if not row.empty:
-                price = float(row.iloc[0]["close"])
-                market_value += pos.shares * price
+        market_value = self._market_value(day_quotes)
         total_value = self.cash + market_value
         self.daily_values.append(
             {
@@ -237,9 +258,20 @@ class BacktestEngine:
             }
         )
 
-    def _prev_close(self, symbol: str, day_quotes: pd.DataFrame | None = None) -> float | None:
-        # Simplified: use cost basis as proxy; for accurate limit detection we'd need full history.
-        pos = self.positions.get(symbol)
-        if pos:
-            return pos.cost_basis
-        return None
+    def _market_value(self, day_quotes: pd.DataFrame) -> float:
+        market_value = 0.0
+        for sym, pos in self.positions.items():
+            row = day_quotes[day_quotes["symbol"] == sym]
+            if not row.empty:
+                price = float(row.iloc[0]["close"])
+                market_value += pos.shares * price
+        return market_value
+
+    def _prev_close(self, symbol: str) -> float | None:
+        """Return the previous trading day's close price for limit-up/down checks."""
+        if self.prev_day_quotes is None:
+            return None
+        row = self.prev_day_quotes[self.prev_day_quotes["symbol"] == symbol]
+        if row.empty:
+            return None
+        return float(row.iloc[0]["close"])

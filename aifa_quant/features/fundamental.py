@@ -33,25 +33,14 @@ def merge_fundamental_to_daily(daily_df: pd.DataFrame, financial_df: pd.DataFram
     ]
     financial = financial[[c for c in useful_cols if c in financial.columns]].copy()
 
-    # For each symbol, merge asof forward fill
-    merged_frames = []
-    for symbol in daily["symbol"].unique():
-        d_sub = daily[daily["symbol"] == symbol].sort_values("trade_date").copy()
-        f_sub = financial[financial["symbol"] == symbol].sort_values("report_date").copy()
-
-        if f_sub.empty:
-            merged_frames.append(d_sub)
-            continue
-
-        # Use merge_asof to attach latest reported fundamental as of each trade_date
-        d_sub = pd.merge_asof(
-            d_sub,
-            f_sub,
-            left_on="trade_date",
-            right_on="report_date",
-            by="symbol",
-            direction="backward",
-        )
-        merged_frames.append(d_sub)
-
-    return pd.concat(merged_frames, ignore_index=True)
+    # Single merge_asof by symbol is equivalent to the previous per-symbol loop
+    # but avoids O(n_symbols) DataFrame slices and is significantly faster.
+    merged = pd.merge_asof(
+        daily.sort_values("trade_date"),
+        financial.sort_values("report_date"),
+        left_on="trade_date",
+        right_on="report_date",
+        by="symbol",
+        direction="backward",
+    )
+    return merged.drop(columns=["report_date"], errors="ignore")

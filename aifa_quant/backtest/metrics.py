@@ -24,8 +24,15 @@ def compute_metrics(
     total_return = df["total_value"].iloc[-1] / df["total_value"].iloc[0] - 1
     n_days = len(df)
     annual_return = (1 + total_return) ** (252 / n_days) - 1 if n_days > 0 else 0.0
-    volatility = returns.std() * np.sqrt(252)
-    sharpe = (annual_return - risk_free_rate) / volatility if volatility != 0 else 0.0
+
+    # Standard excess-return Sharpe ratio
+    excess_returns = returns - risk_free_rate / 252
+    volatility = excess_returns.std() * np.sqrt(252)
+    sharpe = (
+        excess_returns.mean() / excess_returns.std() * np.sqrt(252)
+        if excess_returns.std() != 0
+        else 0.0
+    )
 
     # Max drawdown
     cumulative = (1 + returns).cumprod()

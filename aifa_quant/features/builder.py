@@ -5,6 +5,7 @@ import pandas as pd
 from ..config.settings import Settings
 from ..data.adapters import EDBMCPAdapter, StockMCPAdapter, build_free_sentiment_features
 from ..data.storage import DuckDBStore
+from ..data.validation import DataValidator
 from .alpha_factors import compute_alpha_factors, list_alpha_factors
 from .fundamental import merge_fundamental_to_daily
 from .macro import merge_macro_to_daily
@@ -34,8 +35,9 @@ class FeatureBuilder:
         start_date: str | None = None,
         end_date: str | None = None,
     ) -> pd.DataFrame:
-        """Load raw daily quotes from DuckDB."""
-        return self.store.load_daily_quotes(symbols, start_date, end_date)
+        """Load raw daily quotes from DuckDB and validate them."""
+        df = self.store.load_daily_quotes(symbols, start_date, end_date)
+        return DataValidator.validate_daily_quotes(df)
 
     @staticmethod
     def build_per_symbol(df: pd.DataFrame) -> pd.DataFrame:
@@ -188,13 +190,9 @@ class FeatureBuilder:
                 print(f"  [WARN] 情绪因子获取失败: {e}")
 
         print("[yellow]正在构建技术因子...[/yellow]")
-        frames = []
-        for symbol, group in raw.groupby("symbol"):
-            feat = self.build_per_symbol(group)
-            feat["symbol"] = symbol
-            frames.append(feat)
-
-        df = pd.concat(frames, ignore_index=True)
+        # Use groupby.apply for vectorized per-symbol computation instead of a Python for-loop.
+        df = raw.groupby("symbol", group_keys=False).apply(self.build_per_symbol)
+        df = df.reset_index(drop=True)
 
         if include_alpha:
             print(f"[yellow]正在构建 Alpha101/191 因子（{len(alpha_factors or list_alpha_factors())} 个）...[/yellow]")

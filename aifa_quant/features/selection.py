@@ -32,6 +32,44 @@ def drop_highly_correlated(
     return [c for c in cols if c not in to_drop]
 
 
+def select_by_ic(
+    df: pd.DataFrame,
+    feature_cols: list[str],
+    label_col: str = "label_return",
+    method: str = "spearman",
+    threshold: float = 0.02,
+) -> list[str]:
+    """Select features whose absolute IC (information coefficient) >= threshold.
+
+    Args:
+        df: DataFrame containing features and label.
+        feature_cols: Candidate feature columns.
+        label_col: Column name of the forward return label.
+        method: Correlation method, 'spearman' or 'pearson'.
+        threshold: Minimum absolute IC to keep the feature.
+
+    Returns:
+        List of feature names passing the IC threshold.
+    """
+    from scipy.stats import pearsonr, spearmanr
+
+    cols = [c for c in feature_cols if c in df.columns]
+    selected: list[str] = []
+    corr_func = spearmanr if method == "spearman" else pearsonr
+
+    for col in cols:
+        sub = df[[col, label_col]].dropna()
+        if len(sub) < 10:
+            continue
+        try:
+            ic = corr_func(sub[col], sub[label_col]).correlation
+        except Exception:
+            continue
+        if abs(ic) >= threshold:
+            selected.append(col)
+    return selected
+
+
 def select_by_importance(
     importance: pd.Series,
     threshold_ratio: float = 0.01,

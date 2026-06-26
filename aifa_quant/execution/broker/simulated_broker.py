@@ -5,6 +5,7 @@ from typing import Any
 import pandas as pd
 
 from ...core.interfaces import BaseBroker
+from ...core.trading_config import TradingConfig
 from ...data.storage import DuckDBStore
 
 
@@ -21,6 +22,7 @@ class SimulatedBroker(BaseBroker):
 
     def __init__(
         self,
+        config: TradingConfig | None = None,
         initial_cash: float = 1_000_000.0,
         store: DuckDBStore | None = None,
         commission_rate: float = 0.0003,
@@ -28,17 +30,26 @@ class SimulatedBroker(BaseBroker):
         stamp_duty_rate: float = 0.001,
         slippage: float = 0.0,
     ):
-        self.initial_cash = initial_cash
-        self.cash = initial_cash
+        if config is None:
+            config = TradingConfig(
+                initial_cash=initial_cash,
+                commission_rate=commission_rate,
+                min_commission=min_commission,
+                stamp_duty_rate=stamp_duty_rate,
+                slippage=slippage,
+            )
+        self.config = config
+        self.initial_cash = config.initial_cash
+        self.cash = config.initial_cash
         self._positions: dict[str, dict[str, Any]] = {}  # symbol -> {shares, cost_basis}
         self.orders: list[dict[str, Any]] = []
         self.store = store
         self._connected = False
 
-        self.commission_rate = commission_rate
-        self.min_commission = min_commission
-        self.stamp_duty_rate = stamp_duty_rate
-        self.slippage = slippage
+        self.commission_rate = config.commission_rate
+        self.min_commission = config.min_commission
+        self.stamp_duty_rate = config.stamp_duty_rate
+        self.slippage = config.slippage
 
         self._trade_date: pd.Timestamp | None = None
         self._day_quotes: pd.DataFrame | None = None

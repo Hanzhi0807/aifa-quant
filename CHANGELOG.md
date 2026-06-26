@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-06-26
+
+### Fixed
+- 回测引擎 `_prev_close` 改为使用真实昨收价，修复涨跌停判断 bug。
+- 回测引擎 `_rebalance` 改为基于总资产等权分配，修复现金分配 bug。
+- 回测引擎预建 `quotes_by_date` 索引，避免每日全表扫描。
+- Sharpe 比率改为标准超额收益法。
+
+### Changed
+- `features/fundamental.py` 用单次 `merge_asof(by="symbol")` 替代逐 symbol 循环。
+- `features/builder.py` 用 `groupby.apply` 替代逐 symbol Python 循环。
+- `features/selection.py` 新增 `select_by_ic()` IC 阈值特征选择。
+- 新增 `core/trading_config.py` 共享配置对象，`BacktestEngine` / `SimulatedBroker` / `PaperTradingEngine` 均可使用。
+- 新增 `data/validation.py` 数据校验层，在 `FeatureBuilder.load_raw_data()` 中接入。
+
 ## [0.5.0] - 2026-06-26
 
 ### Added

@@ -6,6 +6,7 @@ from typing import Any
 import pandas as pd
 
 from ..config.settings import Settings
+from ..core.trading_config import TradingConfig
 from ..data.storage import DuckDBStore
 from ..execution.broker import SimulatedBroker
 from ..features import FeatureBuilder
@@ -33,6 +34,7 @@ class PaperTradingEngine:
     def __init__(
         self,
         settings: Settings | None = None,
+        config: TradingConfig | None = None,
         model_name: str = "lgb_stock_selector",
         top_k: int = 5,
         rebalance_freq: int = 5,
@@ -51,15 +53,27 @@ class PaperTradingEngine:
         self.model_name = model_name
         self.top_k = top_k
         self.rebalance_freq = rebalance_freq
-        self.initial_cash = initial_cash
-        self.commission_rate = commission_rate
-        self.min_commission = min_commission
-        self.stamp_duty_rate = stamp_duty_rate
-        self.slippage = slippage
         self.include_fundamental = include_fundamental
         self.include_macro = include_macro
         self.include_sentiment = include_sentiment
         self.corr_threshold = corr_threshold
+
+        if config is None:
+            config = TradingConfig(
+                initial_cash=initial_cash,
+                commission_rate=commission_rate,
+                min_commission=min_commission,
+                stamp_duty_rate=stamp_duty_rate,
+                slippage=slippage,
+                rebalance_freq=rebalance_freq,
+                top_k=top_k,
+            )
+        self.config = config
+        self.initial_cash = config.initial_cash
+        self.commission_rate = config.commission_rate
+        self.min_commission = config.min_commission
+        self.stamp_duty_rate = config.stamp_duty_rate
+        self.slippage = config.slippage
 
     def run(
         self,
@@ -113,14 +127,7 @@ class PaperTradingEngine:
         day_features["pred_score"] = model.predict(day_features[feature_cols])
 
         # Load current broker state
-        broker = SimulatedBroker(
-            initial_cash=self.initial_cash,
-            store=self.store,
-            commission_rate=self.commission_rate,
-            min_commission=self.min_commission,
-            stamp_duty_rate=self.stamp_duty_rate,
-            slippage=self.slippage,
-        )
+        broker = SimulatedBroker(config=self.config, store=self.store)
         broker.connect()
 
         # Generate signals
@@ -271,9 +278,13 @@ class PaperTradingEngine:
 
     def reset(self, cash: float | None = None) -> None:
         """Reset paper trading state to cash only."""
-        broker = SimulatedBroker(
+        reset_config = TradingConfig(
             initial_cash=cash if cash is not None else self.initial_cash,
-            store=self.store,
+            commission_rate=self.commission_rate,
+            min_commission=self.min_commission,
+            stamp_duty_rate=self.stamp_duty_rate,
+            slippage=self.slippage,
         )
+        broker = SimulatedBroker(config=reset_config, store=self.store)
         broker.connect()
         broker.reset_state()
