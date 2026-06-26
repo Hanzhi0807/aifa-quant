@@ -59,6 +59,9 @@ def data_update(
     workers: int = typer.Option(3, "--workers", help="Concurrent download workers"),
     fundamental: bool = typer.Option(False, "--fundamental", help="Also fetch and cache PE/PB/ROE fundamental data"),
     macro: bool = typer.Option(False, "--macro", help="Also fetch and cache CPI/PMI/M2 macro data"),
+    skip_daily: bool = typer.Option(
+        False, "--skip-daily", help="Skip daily quote download (useful when only updating fundamental/macro)"
+    ),
 ):
     """Fetch daily quotes from iFind MCP and persist to DuckDB."""
     # Map friendly universe names to iFind queries
@@ -83,13 +86,16 @@ def data_update(
     if sample is not None and sample > 0:
         target_symbols = target_symbols[:sample]
         print(f"[cyan]已限制为前 {len(target_symbols)} 只股票[/cyan]")
-    total_rows = pipeline.update_daily_quotes(
-        symbols=target_symbols,
-        start_date=start,
-        end_date=end,
-        incremental=not full,
-    )
-    print(f"[bold green]日线数据共写入 {total_rows} 条[/bold green]")
+    if not skip_daily:
+        total_rows = pipeline.update_daily_quotes(
+            symbols=target_symbols,
+            start_date=start,
+            end_date=end,
+            incremental=not full,
+        )
+        print(f"[bold green]日线数据共写入 {total_rows} 条[/bold green]")
+    else:
+        print("[cyan]已跳过日线下载[/cyan]")
 
     if fundamental:
         fundamental_rows = pipeline.update_fundamental_data(
