@@ -97,7 +97,29 @@ python aifa_quant/scripts/export_source_data.py
 
 ---
 
-## 5. 注意事项
+## 5. 模拟交易状态表
+
+除市场数据外，DuckDB 还存储模拟交易状态（不提交到 Git）：
+
+| 表名 | 说明 | 关键字段 |
+|------|------|----------|
+| `paper_positions` | 当前持仓 | `symbol`, `shares`, `cost_basis` |
+| `paper_orders` | 历史订单 | `order_id`, `trade_date`, `symbol`, `side`, `quantity`, `fill_price`, `commission`, `stamp_duty`, `status` |
+| `paper_nav` | 每日净值 | `trade_date`, `cash`, `market_value`, `total_value` |
+
+示例查询：
+
+```sql
+SELECT * FROM paper_positions WHERE shares != 0;
+SELECT * FROM paper_orders ORDER BY created_at DESC LIMIT 20;
+SELECT * FROM paper_nav ORDER BY trade_date;
+```
+
+详细用法见 `docs/PAPER_TRADING.md`。
+
+---
+
+## 6. 注意事项
 
 - `.env` 文件包含 iFind MCP token，**不要提交到 Git**。
 - DuckDB 文件较大且可能更新频繁，**不要提交到 Git**。

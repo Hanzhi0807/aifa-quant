@@ -47,6 +47,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Planned
-- 接入新闻情绪因子与另类数据。
+- 接入新闻情绪因子与另类数据（待 iFind 配额恢复）。
 - 增加参数优化与多策略对比。
-- 实现模拟盘/实盘接口（QMT / easytrader）。
+- 实现实盘接口（QMT / easytrader / Ptrade）。
+
+## [0.4.0] - 2026-06-26
+
+### Added
+- 新增模拟交易（Paper Trading）能力：
+  - `aifa_quant/paper_trading/engine.py` 模拟交易引擎；
+  - `SimulatedBroker` 增强，支持 A股规则（100 股手、佣金、印花税、涨跌停过滤）和 DuckDB 状态持久化；
+  - CLI 新增 `paper-trade reset / run / status` 子命令；
+  - 状态表 `paper_positions`、`paper_orders`、`paper_nav` 持久化到 DuckDB。
+- 新增 `docs/PAPER_TRADING.md` 模拟交易使用说明。
+- `FeatureBuilder` 支持 `prediction_mode=True`，用于预测时无需未来标签。
+- 发布 GitHub Release `v0.4.0-data-full`：日线 + 基本面 + 宏观 gzip CSV。
+
+### Changed
+- `paper-trade run` 默认 `cache_only=True`，离线执行、不消耗 iFind 额度。
+- `load_paper_cash` 按 `updated_at` 取最新现金，避免重置行干扰。
+
+## [0.3.0] - 2026-06-25
+
+### Added
+- DuckDB 持久化基本面与宏观数据：`fundamental_data`、`macro_data` 表。
+- CLI `data-update` 新增 `--fundamental`、`--macro`、`--skip-daily`、`--workers`。
+- CLI `backtest` / `train` 新增 `--cache-only`、`--sentiment/--no-sentiment`、`--corr-threshold`。
+- 增量更新 Pipeline：按 symbol 增量拉取、限速 5 req/s、thread-local DuckDB 连接。
+- 情绪因子 SHAP 与解析修复，新增 `NewsMCPAdapter` 非表格 answer 解析。
+- 全因子滚动回测（2023–2024 沪深 300）：总收益 336.37%，超额收益 335.16%。
+- 网站前端本地化（中文）与仪表盘，本地 dev server 端口 3000。
+
+### Changed
+- `.env` 发现逻辑改为从 `settings.py` 向上查找项目根。
+- 特征构建时排除 `created_at` 等时间列，避免 LightGBM 类型错误。
+- 回测默认使用缓存数据，避免训练/回测阶段意外调用 iFind。
+
+### Notes
+- iFind news MCP 配额耗尽，情绪因子当前无数据，建议 `--no-sentiment`。
+- GitHub Actions 仍被账号禁用，CI 徽章不会自动更新。

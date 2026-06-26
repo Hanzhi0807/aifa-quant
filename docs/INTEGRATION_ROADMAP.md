@@ -132,6 +132,7 @@ class BaseModel(ABC):
 
 | 来源 | 长处 | 接入方式 | 优先级 | 难度 |
 |---|---|---|---|---|
+| **SimulatedBroker（内置）** | 离线验证策略，不消耗额度 | 已实现，见 `execution/broker/simulated_broker.py` + `paper_trading/engine.py` | ✅ 已完成 | - |
 | **QMT** | 国内主流量化交易终端 | 新增 `execution/qmt_broker.py` 实现 `BaseBroker` | 高 | 中 |
 | **easytrader** | 券商客户端自动化 | 新增 `execution/easytrader_broker.py` | 中 | 中 |
 | **Ptrade** | 恒生量化平台 | 新增 `execution/ptrade_broker.py` | 低 | 高 |
@@ -277,5 +278,6 @@ aifa_quant/
 | Alphalens 因子分析 | ⏳ 待接入 | - | 优先级高 |
 | XGBoost 模型 | ⏳ 待接入 | - | 优先级低 |
 | Backtrader 回测 | ⏳ 待接入 | - | 优先级中 |
+| SimulatedBroker / 模拟交易 | ✅ 已接入 | - | 用于离线验证 |
 | QMT 实盘 | ⏳ 待接入 | - | 优先级高（实盘阶段） |
 | Optuna 优化 | ⏳ 待接入 | - | 优先级中 |
