@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Calendar, Sparkles, ShieldAlert, Clock } from "lucide-react";
+import { Calendar, Sparkles, ShieldAlert, Clock, RefreshCw } from "lucide-react";
+import { toast } from "sonner";
 import { trpc } from "@/providers/trpc";
 import GlassCard from "@/components/layout/GlassCard";
 import PicksList from "@/components/dashboard/PicksList";
@@ -10,9 +11,26 @@ import type { PickItemView } from "@/components/dashboard/PicksList";
 export default function Home() {
   const [activeTab, setActiveTab] = useState<"daily" | "weekly">("daily");
 
+  const utils = trpc.useUtils();
   const { data: portfolio } = trpc.portfolio.snapshot.useQuery();
   const { data: dailyPicks } = trpc.picks.daily.useQuery();
   const { data: weeklyPicks } = trpc.weeklyPicks.latest.useQuery();
+  const refreshMutation = trpc.refresh.run.useMutation({
+    onSuccess: async (result) => {
+      if (result.success) {
+        toast.success("数据刷新完成", { description: result.message });
+        await utils.portfolio.snapshot.invalidate();
+        await utils.picks.daily.invalidate();
+        await utils.weeklyPicks.latest.invalidate();
+        await utils.equityCurve.getByBacktestId.invalidate();
+      } else {
+        toast.error("刷新失败", { description: result.message });
+      }
+    },
+    onError: (err) => {
+      toast.error("刷新失败", { description: err.message });
+    },
+  });
 
   const latestDate = dailyPicks?.tradeDate || weeklyPicks?.predictionDate || "-";
 
@@ -48,7 +66,7 @@ export default function Home() {
             基于 LightGBM 模型对沪深 300 成分股打分，每日收盘后生成下一交易日的持仓建议。
             最小时间维度为日线，周度版本为每周一次的调仓视角。
           </p>
-          <div className="flex items-center gap-4 text-sm text-[var(--text-muted)] pt-1">
+          <div className="flex flex-wrap items-center gap-4 text-sm text-[var(--text-muted)] pt-1">
             <span className="flex items-center gap-1.5">
               <Calendar className="w-4 h-4" />
               最新信号日期：{latestDate}
@@ -57,6 +75,16 @@ export default function Home() {
               <Clock className="w-4 h-4" />
               更新频率：交易日 15:30 后
             </span>
+            <button
+              onClick={() => refreshMutation.mutate()}
+              disabled={refreshMutation.isPending}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[var(--cyan)]/10 text-[var(--cyan)] hover:bg-[var(--cyan)]/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              <RefreshCw
+                className={`w-4 h-4 ${refreshMutation.isPending ? "animate-spin" : ""}`}
+              />
+              {refreshMutation.isPending ? "正在刷新..." : "手动刷新数据"}
+            </button>
           </div>
         </div>
 

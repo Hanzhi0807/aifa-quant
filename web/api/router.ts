@@ -11,6 +11,7 @@ import { backtestRunnerRouter } from "./routers/backtestRunner";
 import { picksRouter } from "./routers/picks";
 import { portfolioRouter } from "./routers/portfolio";
 import { weeklyPicksRouter } from "./routers/weeklyPicks";
+import { refreshRouter } from "./routers/refresh";
 
 export const appRouter = createRouter({
   ping: publicQuery.query(() => ({ ok: true, ts: Date.now() })),
@@ -26,6 +27,7 @@ export const appRouter = createRouter({
   picks: picksRouter,
   portfolio: portfolioRouter,
   weeklyPicks: weeklyPicksRouter,
+  refresh: refreshRouter,
 });
 
 export type AppRouter = typeof appRouter;
