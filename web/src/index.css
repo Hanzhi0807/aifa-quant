@@ -70,6 +70,19 @@
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2), 0 0 20px rgba(0, 212, 255, 0.05);
   }
 
+  .stock-card {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 20px;
+    padding: 20px;
+    transition: all 0.3s ease;
+  }
+  .stock-card:hover {
+    border-color: rgba(0, 212, 255, 0.2);
+    background: rgba(255, 255, 255, 0.06);
+    box-shadow: 0 4px 20px rgba(0, 212, 255, 0.08);
+  }
+
   .pill-btn {
     border-radius: 50px;
     padding: 10px 24px;

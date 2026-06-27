@@ -1,5 +1,6 @@
 import { ArrowUpRight, ArrowDownRight, Minus } from "lucide-react";
 import GlassCard from "../layout/GlassCard";
+import StockCard from "./StockCard";
 
 export interface PickItemView {
   symbol: string;
@@ -9,6 +10,7 @@ export interface PickItemView {
   close?: number;
   weight?: number;
   action?: "买入" | "持有" | "观望";
+  pnlPct?: number;
 }
 
 interface PicksListProps {
@@ -16,6 +18,9 @@ interface PicksListProps {
   subtitle?: string;
   picks: PickItemView[];
   emptyText?: string;
+  variant?: "list" | "cards";
+  cardVariant?: "daily" | "weekly";
+  remark?: string;
 }
 
 export default function PicksList({
@@ -23,12 +28,34 @@ export default function PicksList({
   subtitle,
   picks,
   emptyText = "暂无选股信号",
+  variant = "list",
+  cardVariant = "daily",
+  remark,
 }: PicksListProps) {
   return (
     <GlassCard title={title} subtitle={subtitle}>
+      {remark && (
+        <p className="text-xs text-[var(--text-muted)] -mt-3 mb-4 leading-relaxed">{remark}</p>
+      )}
       {picks.length === 0 ? (
         <div className="text-center py-10">
           <p className="text-sm text-[var(--text-muted)]">{emptyText}</p>
+        </div>
+      ) : variant === "cards" ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {picks.map((pick) => (
+            <StockCard
+              key={pick.symbol}
+              rank={pick.rank}
+              symbol={pick.symbol}
+              name={pick.name}
+              close={pick.close || 0}
+              weight={pick.weight}
+              score={pick.score}
+              pnlPct={pick.pnlPct}
+              variant={cardVariant}
+            />
+          ))}
         </div>
       ) : (
         <div className="space-y-3">

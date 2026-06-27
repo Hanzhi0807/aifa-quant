@@ -6,6 +6,7 @@ import { existsSync } from "fs";
 import { resolve } from "path";
 
 const execAsync = promisify(exec);
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 interface RefreshResult {
   success: boolean;
@@ -14,7 +15,6 @@ interface RefreshResult {
 }
 
 function getProjectRoot(): string {
-  // API server runs from web/ in dev and from web/dist/ in production.
   return resolve(process.cwd(), "..");
 }
 
@@ -26,8 +26,28 @@ function resolvePython(projectRoot: string): string {
   for (const candidate of candidates) {
     if (existsSync(candidate)) return candidate;
   }
-  // Fall back to system Python (e.g. inside Docker or CI).
   return process.platform === "win32" ? "python" : "python3";
+}
+
+async function runRefresh(projectRoot: string, python: string): Promise<RefreshResult> {
+  const cmd = `"${python}" scripts/daily_refresh.py`;
+
+  const { stdout, stderr } = await execAsync(cmd, {
+    cwd: projectRoot,
+    maxBuffer: 10 * 1024 * 1024,
+    timeout: 10 * 60 * 1000,
+  });
+
+  return {
+    success: true,
+    message: "数据刷新完成",
+    output: stdout + (stderr ? `\n${stderr}` : ""),
+  };
+}
+
+function isLockError(err: Error): boolean {
+  const msg = err.message.toLowerCase();
+  return msg.includes("cannot open file") || msg.includes("already open");
 }
 
 export const refreshRouter = createRouter({
@@ -37,26 +57,30 @@ export const refreshRouter = createRouter({
       const projectRoot = getProjectRoot();
       const python = resolvePython(projectRoot);
 
-      const cmd = `"${python}" scripts/daily_refresh.py`;
+      // Give pending DuckDB queries a chance to close before launching Python.
+      await sleep(1500);
 
       try {
-        const { stdout, stderr } = await execAsync(cmd, {
-          cwd: projectRoot,
-          maxBuffer: 10 * 1024 * 1024,
-          timeout: 10 * 60 * 1000, // 10 minutes
-        });
-
-        return {
-          success: true,
-          message: "数据刷新完成",
-          output: stdout + (stderr ? `\n${stderr}` : ""),
-        } as RefreshResult;
+        return await runRefresh(projectRoot, python);
       } catch (err: any) {
+        // If the DuckDB file is still locked, wait longer and retry once.
+        if (isLockError(err)) {
+          await sleep(5000);
+          try {
+            return await runRefresh(projectRoot, python);
+          } catch (retryErr: any) {
+            return {
+              success: false,
+              message: retryErr.message || "刷新失败（重试后仍冲突）",
+              output: retryErr.stdout ? String(retryErr.stdout) : undefined,
+            };
+          }
+        }
         return {
           success: false,
           message: err.message || "刷新失败",
           output: err.stdout ? String(err.stdout) : undefined,
-        } as RefreshResult;
+        };
       }
     }),
 });

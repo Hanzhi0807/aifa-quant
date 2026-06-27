@@ -31,6 +31,13 @@ class DuckDBStore:
 
     def _init_tables(self, conn: duckdb.DuckDBPyConnection) -> None:
         """Create core tables if they do not exist."""
+        # Add profile column to existing tables (safe migration)
+        for table in ["paper_positions", "paper_orders", "paper_nav"]:
+            try:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN profile VARCHAR DEFAULT 'balanced'")
+            except Exception:
+                pass  # column already exists or table doesn't exist yet
+
         conn.execute("""
             CREATE TABLE IF NOT EXISTS daily_quotes (
                 symbol VARCHAR NOT NULL,
@@ -86,16 +93,19 @@ class DuckDBStore:
 
         conn.execute("""
             CREATE TABLE IF NOT EXISTS paper_positions (
-                symbol VARCHAR PRIMARY KEY,
+                symbol VARCHAR NOT NULL,
+                profile VARCHAR NOT NULL DEFAULT 'balanced',
                 shares BIGINT NOT NULL DEFAULT 0,
                 cost_basis DOUBLE DEFAULT 0.0,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (profile, symbol)
             );
         """)
 
         conn.execute("""
             CREATE TABLE IF NOT EXISTS paper_orders (
-                order_id VARCHAR PRIMARY KEY,
+                order_id VARCHAR NOT NULL,
+                profile VARCHAR NOT NULL DEFAULT 'balanced',
                 trade_date DATE NOT NULL,
                 symbol VARCHAR NOT NULL,
                 side VARCHAR NOT NULL,
@@ -106,17 +116,20 @@ class DuckDBStore:
                 commission DOUBLE DEFAULT 0.0,
                 stamp_duty DOUBLE DEFAULT 0.0,
                 status VARCHAR NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (profile, order_id)
             );
         """)
 
         conn.execute("""
             CREATE TABLE IF NOT EXISTS paper_nav (
-                trade_date DATE PRIMARY KEY,
+                trade_date DATE NOT NULL,
+                profile VARCHAR NOT NULL DEFAULT 'balanced',
                 cash DOUBLE NOT NULL,
                 market_value DOUBLE NOT NULL,
                 total_value DOUBLE NOT NULL,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (profile, trade_date)
             );
         """)
 
@@ -269,43 +282,43 @@ class DuckDBStore:
     # ------------------------------------------------------------------
     # Paper trading state persistence
     # ------------------------------------------------------------------
-    def load_paper_positions(self) -> pd.DataFrame:
-        """Return current paper positions as a DataFrame."""
+    def load_paper_positions(self, profile: str = "balanced") -> pd.DataFrame:
+        """Return current paper positions for a profile."""
         return self.conn.execute("""
             SELECT symbol, shares, cost_basis, updated_at
             FROM paper_positions
-            WHERE shares != 0
+            WHERE shares != 0 AND profile = ?
             ORDER BY symbol
-        """).fetchdf()
+        """, [profile]).fetchdf()
 
-    def save_paper_positions(self, df: pd.DataFrame) -> int:
-        """Upsert paper positions."""
+    def save_paper_positions(self, df: pd.DataFrame, profile: str = "balanced") -> int:
+        """Upsert paper positions for a profile."""
         if df.empty:
             return 0
         df = df.copy()
+        df["profile"] = profile
         if "updated_at" not in df.columns:
             df["updated_at"] = pd.Timestamp.now()
         self.conn.register("tmp_positions", df)
         self.conn.execute("""
-            INSERT OR REPLACE INTO paper_positions
-            SELECT symbol, shares, cost_basis, updated_at
+            INSERT OR REPLACE INTO paper_positions (profile, symbol, shares, cost_basis, updated_at)
+            SELECT profile, symbol, shares, cost_basis, updated_at
             FROM tmp_positions;
         """)
         self.conn.unregister("tmp_positions")
         return len(df)
 
-    def load_paper_cash(self) -> float | None:
-        """Return the latest recorded cash balance, or None if no NAV row exists."""
+    def load_paper_cash(self, profile: str = "balanced") -> float | None:
         result = self.conn.execute("""
-            SELECT cash FROM paper_nav ORDER BY updated_at DESC LIMIT 1
-        """).fetchone()
+            SELECT cash FROM paper_nav WHERE profile = ? ORDER BY updated_at DESC LIMIT 1
+        """, [profile]).fetchone()
         return result[0] if result else None
 
-    def save_paper_nav(self, df: pd.DataFrame) -> int:
-        """Upsert paper NAV records."""
+    def save_paper_nav(self, df: pd.DataFrame, profile: str = "balanced") -> int:
         if df.empty:
             return 0
         df = df.copy()
+        df["profile"] = profile
         df["trade_date"] = pd.to_datetime(df["trade_date"]).dt.date
         for col in ["cash", "market_value", "total_value"]:
             if col not in df.columns:
@@ -315,28 +328,27 @@ class DuckDBStore:
             df["updated_at"] = pd.Timestamp.now()
         self.conn.register("tmp_nav", df)
         self.conn.execute("""
-            INSERT OR REPLACE INTO paper_nav
-            SELECT trade_date, cash, market_value, total_value, updated_at
+            INSERT OR REPLACE INTO paper_nav (profile, trade_date, cash, market_value, total_value, updated_at)
+            SELECT profile, trade_date, cash, market_value, total_value, updated_at
             FROM tmp_nav;
         """)
         self.conn.unregister("tmp_nav")
         return len(df)
 
-    def load_paper_nav(self, trade_date: str | None = None) -> pd.DataFrame:
-        """Load paper NAV history, optionally filtered to a date."""
-        query = "SELECT * FROM paper_nav WHERE 1=1"
-        params: list[Any] = []
+    def load_paper_nav(self, profile: str = "balanced", trade_date: str | None = None) -> pd.DataFrame:
+        query = "SELECT * FROM paper_nav WHERE profile = ?"
+        params: list[Any] = [profile]
         if trade_date:
             query += " AND trade_date = ?"
             params.append(pd.to_datetime(trade_date).date())
         query += " ORDER BY trade_date"
         return self.conn.execute(query, params).fetchdf()
 
-    def save_paper_orders(self, df: pd.DataFrame) -> int:
-        """Insert paper orders."""
+    def save_paper_orders(self, df: pd.DataFrame, profile: str = "balanced") -> int:
         if df.empty:
             return 0
         df = df.copy()
+        df["profile"] = profile
         df["trade_date"] = pd.to_datetime(df["trade_date"], errors="coerce")
         if df["trade_date"].isna().any():
             df["trade_date"] = df["trade_date"].fillna(pd.Timestamp.now().normalize())
@@ -349,29 +361,29 @@ class DuckDBStore:
             df["created_at"] = pd.Timestamp.now()
         self.conn.register("tmp_orders", df)
         self.conn.execute("""
-            INSERT OR REPLACE INTO paper_orders
-            SELECT order_id, trade_date, symbol, side, quantity, order_type,
+            INSERT OR REPLACE INTO paper_orders (profile, order_id, trade_date, symbol, side, quantity, order_type,
+                   price, fill_price, commission, stamp_duty, status, created_at)
+            SELECT profile, order_id, trade_date, symbol, side, quantity, order_type,
                    price, fill_price, commission, stamp_duty, status, created_at
             FROM tmp_orders;
         """)
         self.conn.unregister("tmp_orders")
         return len(df)
 
-    def load_paper_orders(self, status: str | None = None) -> pd.DataFrame:
-        """Return paper orders, optionally filtered by status."""
-        query = "SELECT * FROM paper_orders WHERE 1=1"
-        params: list[Any] = []
+    def load_paper_orders(self, profile: str = "balanced", status: str | None = None) -> pd.DataFrame:
+        query = "SELECT * FROM paper_orders WHERE profile = ?"
+        params: list[Any] = [profile]
         if status:
             query += " AND status = ?"
             params.append(status)
         query += " ORDER BY created_at"
         return self.conn.execute(query, params).fetchdf()
 
-    def clear_paper_state(self) -> None:
-        """Truncate all paper trading tables."""
-        self.conn.execute("DELETE FROM paper_positions")
-        self.conn.execute("DELETE FROM paper_orders")
-        self.conn.execute("DELETE FROM paper_nav")
+    def clear_paper_state(self, profile: str = "balanced") -> None:
+        """Truncate all paper trading tables for a profile."""
+        self.conn.execute("DELETE FROM paper_positions WHERE profile = ?", [profile])
+        self.conn.execute("DELETE FROM paper_orders WHERE profile = ?", [profile])
+        self.conn.execute("DELETE FROM paper_nav WHERE profile = ?", [profile])
 
     def get_latest_trade_date(self) -> pd.Timestamp | None:
         """Return the latest trade_date stored in daily_quotes across all symbols."""

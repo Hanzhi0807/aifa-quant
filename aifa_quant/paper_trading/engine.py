@@ -1,6 +1,10 @@
-"""Paper trading engine: generate signals and execute via SimulatedBroker."""
+"""Paper trading engine: generate signals and execute via SimulatedBroker.
 
-from dataclasses import dataclass
+Integrates ATR stop-loss, volatility position sizing, and market oscillation filter
+from the risk module.
+"""
+
+from dataclasses import dataclass, field
 from typing import Any
 
 import pandas as pd
@@ -12,7 +16,9 @@ from ..execution.broker import SimulatedBroker
 from ..features import FeatureBuilder
 from ..models.lgb_ranker import LGBRankerModel
 from ..models.registry import ModelRegistry
+from ..risk import ATRStopManager, VolatilityPositionSizer, detect_oscillation
 from ..strategy import TopKDropoutStrategy
+from ..strategy.profiles import apply_profile_score, get_profile
 
 
 @dataclass
@@ -26,6 +32,8 @@ class PaperTradeResult:
     market_value: float
     total_value: float
     positions: dict[str, int]
+    stop_signals: list = field(default_factory=list)
+    market_choppy: bool = False
 
 
 class PaperTradingEngine:
@@ -47,16 +55,40 @@ class PaperTradingEngine:
         include_macro: bool = True,
         include_sentiment: bool = False,
         corr_threshold: float | None = 0.95,
+        use_atr_stops: bool = True,
+        use_vol_sizing: bool = True,
+        use_market_filter: bool = True,
+        profile: str = "balanced",
     ):
         self.settings = settings or Settings()
         self.store = DuckDBStore(self.settings)
         self.model_name = model_name
-        self.top_k = top_k
+
+        # Load profile configuration
+        self.profile_id = profile
+        pf = get_profile(profile)
+        if pf:
+            self.top_k = pf.top_k
+            self.risk_config = {
+                "stop_loss_atr": pf.atr_stop_loss,
+                "stop_win_atr": pf.atr_take_profit,
+                "crash_atr": pf.atr_crash,
+                "drawdown_atr": pf.atr_drawdown,
+            }
+            self.vol_config = {"target_risk_pct": pf.target_risk_pct}
+        else:
+            self.top_k = top_k
+            self.risk_config = {}
+            self.vol_config = {}
+
         self.rebalance_freq = rebalance_freq
         self.include_fundamental = include_fundamental
         self.include_macro = include_macro
         self.include_sentiment = include_sentiment
         self.corr_threshold = corr_threshold
+        self.use_atr_stops = use_atr_stops
+        self.use_vol_sizing = use_vol_sizing
+        self.use_market_filter = use_market_filter
 
         if config is None:
             config = TradingConfig(
@@ -66,7 +98,7 @@ class PaperTradingEngine:
                 stamp_duty_rate=stamp_duty_rate,
                 slippage=slippage,
                 rebalance_freq=rebalance_freq,
-                top_k=top_k,
+                top_k=self.top_k,
             )
         self.config = config
         self.initial_cash = config.initial_cash
@@ -74,6 +106,10 @@ class PaperTradingEngine:
         self.min_commission = config.min_commission
         self.stamp_duty_rate = config.stamp_duty_rate
         self.slippage = config.slippage
+
+        # Risk module instances with profile-specific params
+        self.atr_stop_mgr = ATRStopManager(**self.risk_config) if self.risk_config else ATRStopManager()
+        self.position_sizer = VolatilityPositionSizer(**self.vol_config) if self.vol_config else VolatilityPositionSizer()
 
     def run(
         self,
@@ -125,9 +161,10 @@ class PaperTradingEngine:
 
         day_features = day_features.dropna(subset=feature_cols)
         day_features["pred_score"] = model.predict(day_features[feature_cols])
+        day_features = apply_profile_score(day_features, self.profile_id, feature_cols)
 
         # Load current broker state
-        broker = SimulatedBroker(config=self.config, store=self.store)
+        broker = SimulatedBroker(config=self.config, store=self.store, profile=self.profile_id)
         broker.connect()
 
         # Generate signals
@@ -144,7 +181,7 @@ class PaperTradingEngine:
         universe_symbols = features["symbol"].unique().tolist()
         quotes = self.store.load_daily_quotes(
             universe_symbols,
-            start_date=(trade_date - pd.Timedelta(days=10)).strftime("%Y%m%d"),
+            start_date=(trade_date - pd.Timedelta(days=120)).strftime("%Y%m%d"),
             end_date=trade_date_str,
         )
         if quotes.empty:
@@ -159,11 +196,29 @@ class PaperTradingEngine:
 
         broker.set_quotes(trade_date, day_quotes, prev_close_map)
 
-        # Compute planned trades
+        # Market oscillation check — skip new buys in choppy markets
+        market_choppy = False
+        if self.use_market_filter:
+            benchmark_quotes = self.store.load_daily_quotes(
+                ["000300.SH"],
+                start_date=(trade_date - pd.Timedelta(days=60)).strftime("%Y%m%d"),
+                end_date=trade_date_str,
+            )
+            if not benchmark_quotes.empty:
+                benchmark_close = benchmark_quotes.set_index("trade_date")["close"]
+                market_choppy, _ = detect_oscillation(benchmark_close, verbose=True)
+
+        # Apply ATR stops to current positions (pass full quote history)
+        stop_signals = []
+        if self.use_atr_stops:
+            stop_signals = self._apply_stops(broker, quotes, prev_close_map)
+
+        # Compute planned trades (skip new buys if market is choppy)
         planned_orders = self._plan_rebalance(
             broker=broker,
             selected_symbols=selected_symbols,
-            day_quotes=day_quotes,
+            quotes=quotes,
+            market_choppy=market_choppy,
         )
 
         if dry_run:
@@ -176,9 +231,15 @@ class PaperTradingEngine:
                 market_value=total_value - broker.query_cash(),
                 total_value=total_value,
                 positions=current_positions,
+                stop_signals=stop_signals,
+                market_choppy=market_choppy,
             )
 
-        # Execute trades
+        # Execute stop orders first
+        for stop_order in self._stop_signals_to_orders(stop_signals, broker, day_quotes):
+            broker.submit_order(**stop_order)
+
+        # Execute rebalance trades
         for order in planned_orders:
             broker.submit_order(
                 symbol=order["symbol"],
@@ -201,6 +262,8 @@ class PaperTradingEngine:
             market_value=market_value,
             total_value=total_value,
             positions=broker.query_positions(),
+            stop_signals=stop_signals,
+            market_choppy=market_choppy,
         )
 
     def _resolve_trade_date(self, trade_date: str | pd.Timestamp | None) -> pd.Timestamp:
@@ -215,13 +278,17 @@ class PaperTradingEngine:
         self,
         broker: SimulatedBroker,
         selected_symbols: list[str],
-        day_quotes: pd.DataFrame,
+        quotes: pd.DataFrame,
+        market_choppy: bool = False,
     ) -> list[dict[str, Any]]:
-        """Return planned orders to move current positions to equal-weight targets."""
+        """Return planned orders using volatility position sizing.
+
+        In choppy markets, only sell (no new buys).
+        """
         current_positions = broker.query_positions()
         cash = broker.query_cash()
-
-        # Mark-to-market current portfolio
+        trade_date = quotes["trade_date"].max()
+        day_quotes = quotes[quotes["trade_date"] == trade_date]
         market_value = broker._market_value(day_quotes)
         total_value = cash + market_value
 
@@ -230,50 +297,100 @@ class PaperTradingEngine:
         # Sell positions not in target
         for sym, shares in list(current_positions.items()):
             if sym not in set(selected_symbols):
-                orders.append(
-                    {
-                        "symbol": sym,
-                        "side": "sell",
-                        "quantity": shares,
-                        "order_type": "market",
-                        "price": None,
-                    }
-                )
+                orders.append({
+                    "symbol": sym, "side": "sell", "quantity": shares,
+                    "order_type": "market", "price": None,
+                })
 
         if not selected_symbols:
             return orders
 
-        target_value_per_stock = total_value / len(selected_symbols)
+        # In choppy markets, skip new buys
+        if market_choppy:
+            # Still sell non-target positions, but don't buy new ones
+            return orders
+
+        # Use volatility-based position sizing
+        if self.use_vol_sizing:
+            target_shares = self.position_sizer.size_positions(
+                total_value=total_value,
+                selected_symbols=selected_symbols,
+                quotes=quotes,
+                cash=cash,
+            )
+        else:
+            # Equal-weight fallback
+            target_value_per_stock = total_value / len(selected_symbols)
+            target_shares = {}
+            for sym in selected_symbols:
+                row = day_quotes[day_quotes["symbol"] == sym]
+                if not row.empty:
+                    price = float(row.iloc[0]["close"])
+                    target_shares[sym] = int(target_value_per_stock / price / 100) * 100
 
         for sym in selected_symbols:
-            row = day_quotes[day_quotes["symbol"] == sym]
-            if row.empty:
+            target = target_shares.get(sym, 0)
+            current = current_positions.get(sym, 0)
+            if target > current:
+                orders.append({
+                    "symbol": sym, "side": "buy", "quantity": target - current,
+                    "order_type": "market", "price": None,
+                })
+            elif target < current:
+                orders.append({
+                    "symbol": sym, "side": "sell", "quantity": current - target,
+                    "order_type": "market", "price": None,
+                })
+
+        return orders
+
+    def _apply_stops(
+        self,
+        broker: SimulatedBroker,
+        quotes: pd.DataFrame,
+        prev_close_map: dict[str, float] | None,
+    ) -> list:
+        """Check ATR stop signals for all current positions."""
+        positions = broker.query_positions()
+        cost_basis_map = broker.query_cost_basis()
+
+        all_signals = []
+        for sym, shares in positions.items():
+            sym_quotes = quotes[quotes["symbol"] == sym].sort_values("trade_date")
+            if sym_quotes.empty or shares <= 0:
                 continue
-            price = float(row.iloc[0]["close"])
-            target_shares = int(target_value_per_stock / price / 100) * 100
-            current_shares = current_positions.get(sym, 0)
 
-            if target_shares > current_shares:
-                orders.append(
-                    {
-                        "symbol": sym,
-                        "side": "buy",
-                        "quantity": target_shares - current_shares,
-                        "order_type": "market",
-                        "price": None,
-                    }
-                )
-            elif target_shares < current_shares:
-                orders.append(
-                    {
-                        "symbol": sym,
-                        "side": "sell",
-                        "quantity": current_shares - target_shares,
-                        "order_type": "market",
-                        "price": None,
-                    }
-                )
+            prev_close = (prev_close_map or {}).get(sym)
+            signals = self.atr_stop_mgr.check_all(
+                symbol=sym,
+                position_shares=shares,
+                cost_basis=cost_basis_map.get(sym, 0),
+                daily_quotes=sym_quotes,
+                prev_close=prev_close,
+            )
+            all_signals.extend(signals)
 
+        return all_signals
+
+    @staticmethod
+    def _stop_signals_to_orders(
+        stop_signals: list,
+        broker: SimulatedBroker,
+        day_quotes: pd.DataFrame,
+    ) -> list[dict[str, Any]]:
+        """Convert StopSignal objects to broker orders."""
+        orders = []
+        for sig in stop_signals:
+            shares = broker.query_positions().get(sig.symbol, 0)
+            if shares <= 0:
+                continue
+            orders.append({
+                "symbol": sig.symbol,
+                "side": "sell",
+                "quantity": shares,
+                "order_type": "market",
+                "price": None,
+            })
         return orders
 
     def reset(self, cash: float | None = None) -> None:
@@ -285,6 +402,6 @@ class PaperTradingEngine:
             stamp_duty_rate=self.stamp_duty_rate,
             slippage=self.slippage,
         )
-        broker = SimulatedBroker(config=reset_config, store=self.store)
+        broker = SimulatedBroker(config=reset_config, store=self.store, profile=self.profile_id)
         broker.connect()
         broker.reset_state()

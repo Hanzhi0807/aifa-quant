@@ -152,53 +152,6 @@ export default function Data() {
           </div>
         </GlassCard>
 
-        {/* Quick Start Guide */}
-        <GlassCard title="快速开始" subtitle="AifaQuant 快速入门">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {[
-              {
-                step: "01",
-                title: "安装",
-                desc: "pip install git+https://github.com/ivyzhi0807/aifa-quant.git",
-                icon: <Layers className="w-5 h-5 text-[var(--cyan)]" />,
-              },
-              {
-                step: "02",
-                title: "配置",
-                desc: "在 .env 文件中配置 iFind token 以获取数据",
-                icon: <Database className="w-5 h-5 text-[var(--green)]" />,
-              },
-              {
-                step: "03",
-                title: "运行回测",
-                desc: "使用 Python API 或网页仪表盘触发回测",
-                icon: <TrendingUp className="w-5 h-5 text-[var(--orange)]" />,
-              },
-            ].map((item) => (
-              <div
-                key={item.step}
-                className="bg-white/[0.03] rounded-xl p-5 hover:bg-white/[0.05] transition-all duration-300"
-              >
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center">
-                    {item.icon}
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider">
-                      步骤 {item.step}
-                    </span>
-                    <h4 className="text-sm font-semibold text-white">
-                      {item.title}
-                    </h4>
-                  </div>
-                </div>
-                <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
-                  {item.desc}
-                </p>
-              </div>
-            ))}
-          </div>
-        </GlassCard>
       </div>
     </div>
   );

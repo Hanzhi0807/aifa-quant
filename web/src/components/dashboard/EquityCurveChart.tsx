@@ -62,7 +62,7 @@ export default function EquityCurveChart() {
   const [range, setRange] = useState("ALL");
 
   const { data: equityData, isLoading } =
-    trpc.equityCurve.getByBacktestId.useQuery({ backtestId: 1 });
+    trpc.equityCurve.getByBacktestId.useQuery({});
 
   const filteredData = useMemo(() => {
     if (!equityData) return [];

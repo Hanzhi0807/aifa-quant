@@ -8,10 +8,9 @@ import { modelRouter } from "./routers/model";
 import { factorRouter } from "./routers/factor";
 import { factorStoreRouter } from "./routers/factorStore";
 import { backtestRunnerRouter } from "./routers/backtestRunner";
-import { picksRouter } from "./routers/picks";
-import { portfolioRouter } from "./routers/portfolio";
-import { weeklyPicksRouter } from "./routers/weeklyPicks";
 import { refreshRouter } from "./routers/refresh";
+import { riskRouter } from "./routers/risk";
+import { strategiesRouter } from "./routers/strategies";
 
 export const appRouter = createRouter({
   ping: publicQuery.query(() => ({ ok: true, ts: Date.now() })),
@@ -24,10 +23,9 @@ export const appRouter = createRouter({
   factor: factorRouter,
   factorStore: factorStoreRouter,
   backtestRunner: backtestRunnerRouter,
-  picks: picksRouter,
-  portfolio: portfolioRouter,
-  weeklyPicks: weeklyPicksRouter,
   refresh: refreshRouter,
+  risk: riskRouter,
+  strategies: strategiesRouter,
 });
 
 export type AppRouter = typeof appRouter;

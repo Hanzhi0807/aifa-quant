@@ -12,7 +12,6 @@ Windows 任务计划程序：
     参考 scripts/daily_refresh.bat
 """
 
-import os
 import sys
 import subprocess
 import logging
@@ -77,17 +76,10 @@ def main() -> None:
         raise
 
     try:
-        run_cli("paper-trade", "run")
-        logger.info("模拟交易已生成最新日度持仓")
+        run_cli("paper-trade", "run", "--all-profiles")
+        logger.info("所有策略模拟交易已完成")
     except Exception as e:
         logger.error("模拟交易失败: %s", e)
-        raise
-
-    try:
-        run_cli("weekly-report", "--cache-only")
-        logger.info("周度选股报告已生成")
-    except Exception as e:
-        logger.error("周度选股报告失败: %s", e)
         raise
 
     logger.info("===== AifaQuant 每日刷新完成 =====")

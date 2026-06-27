@@ -29,6 +29,7 @@ class SimulatedBroker(BaseBroker):
         min_commission: float = 5.0,
         stamp_duty_rate: float = 0.001,
         slippage: float = 0.0,
+        profile: str = "balanced",
     ):
         if config is None:
             config = TradingConfig(
@@ -54,6 +55,7 @@ class SimulatedBroker(BaseBroker):
         self._trade_date: pd.Timestamp | None = None
         self._day_quotes: pd.DataFrame | None = None
         self._prev_close_map: dict[str, float] | None = None
+        self.profile = profile
 
     # ------------------------------------------------------------------
     # Connection & state management
@@ -74,7 +76,7 @@ class SimulatedBroker(BaseBroker):
         self._positions = {}
         self.orders = []
         if self.store is not None:
-            self.store.clear_paper_state()
+            self.store.clear_paper_state(self.profile)
             self._save_state()
 
     def _load_state(self) -> None:
@@ -82,11 +84,11 @@ class SimulatedBroker(BaseBroker):
         if self.store is None:
             return
 
-        stored_cash = self.store.load_paper_cash()
+        stored_cash = self.store.load_paper_cash(self.profile)
         if stored_cash is not None:
             self.cash = float(stored_cash)
 
-        pos_df = self.store.load_paper_positions()
+        pos_df = self.store.load_paper_positions(self.profile)
         self._positions = {}
         for _, row in pos_df.iterrows():
             sym = str(row["symbol"])
@@ -95,7 +97,7 @@ class SimulatedBroker(BaseBroker):
                 "cost_basis": float(row["cost_basis"]),
             }
 
-        self.orders = self.store.load_paper_orders().to_dict("records")
+        self.orders = self.store.load_paper_orders(self.profile).to_dict("records")
 
     def _save_state(self) -> None:
         """Persist cash, positions and orders to the configured store."""
@@ -116,7 +118,7 @@ class SimulatedBroker(BaseBroker):
             )
         else:
             pos_df = pd.DataFrame(columns=["symbol", "shares", "cost_basis"])
-        self.store.save_paper_positions(pos_df)
+        self.store.save_paper_positions(pos_df, self.profile)
 
         nav_df = pd.DataFrame(
             [
@@ -128,10 +130,10 @@ class SimulatedBroker(BaseBroker):
                 }
             ]
         )
-        self.store.save_paper_nav(nav_df)
+        self.store.save_paper_nav(nav_df, self.profile)
 
         if self.orders:
-            self.store.save_paper_orders(pd.DataFrame(self.orders))
+            self.store.save_paper_orders(pd.DataFrame(self.orders), self.profile)
 
     # ------------------------------------------------------------------
     # Daily market data

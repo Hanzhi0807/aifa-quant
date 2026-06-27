@@ -1,189 +1,259 @@
 import { useState } from "react";
-import { Calendar, Sparkles, ShieldAlert, Clock, RefreshCw } from "lucide-react";
+import { ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/providers/trpc";
-import GlassCard from "@/components/layout/GlassCard";
 import PicksList from "@/components/dashboard/PicksList";
-import PortfolioSummary from "@/components/dashboard/PortfolioSummary";
-import MiniEquityChart from "@/components/dashboard/MiniEquityChart";
+import HomeEquityChart from "@/components/dashboard/HomeEquityChart";
+import SimpleFAQ from "@/components/dashboard/SimpleFAQ";
 import type { PickItemView } from "@/components/dashboard/PicksList";
 
-export default function Home() {
-  const [activeTab, setActiveTab] = useState<"daily" | "weekly">("daily");
+const PROFILES = [
+  { id: "aggressive", label: "激进型", desc: "高收益高波动" },
+  { id: "balanced", label: "均衡型", desc: "攻守兼备" },
+  { id: "conservative", label: "稳健型", desc: "低回撤分散" },
+  { id: "growth", label: "成长型", desc: "高成长潜力" },
+  { id: "value", label: "价值型", desc: "低估值优先" },
+];
 
+const faqItems = [
+  {
+    question: "不同策略有什么区别？",
+    answer:
+      "激进型集中持有 5 只股票追求高收益；均衡型持有 8 只兼顾收益与风险；稳健型分散持有 12 只严格控制回撤；成长型聚焦高 ROE 成长股；价值型偏好低估值股票。",
+  },
+  {
+    question: "多久调仓一次？",
+    answer:
+      "所有策略每 5 个交易日重新审视一次持仓，AI 模型自动替换排名下滑的股票。如果大盘处于震荡状态，策略只卖不买，避免反复交易损耗。",
+  },
+  {
+    question: "这个策略靠谱吗？",
+    answer:
+      "策略基于上百个量化因子和机器学习模型，在历史回测中表现优异。但历史表现不代表未来收益，股市有风险，投资需谨慎。",
+    link: { text: "了解技术细节", to: "/models" },
+  },
+  {
+    question: "AI 是怎么选股的？",
+    answer:
+      "模型综合技术面趋势、动量、波动率、基本面估值等上百个因子，使用 LightGBM 机器学习算法对沪深 300 成分股打分，选出上涨概率最高的股票。",
+    link: { text: "查看因子分析", to: "/models" },
+  },
+];
+
+export default function Home() {
+  const [profile, setProfile] = useState("balanced");
   const utils = trpc.useUtils();
-  const { data: portfolio } = trpc.portfolio.snapshot.useQuery();
-  const { data: dailyPicks } = trpc.picks.daily.useQuery();
-  const { data: weeklyPicks } = trpc.weeklyPicks.latest.useQuery();
+
+  const { data: strategies } = trpc.strategies.list.useQuery(undefined, {
+    refetchInterval: 60_000,
+  });
+  const { data: picks } = trpc.strategies.getPicks.useQuery({ profile });
+  const { data: equity } = trpc.strategies.getEquity.useQuery({ profile });
+  const { data: riskStatus } = trpc.risk.status.useQuery({ profile }, {
+    refetchInterval: 120_000,
+  });
+
   const refreshMutation = trpc.refresh.run.useMutation({
     onSuccess: async (result) => {
       if (result.success) {
         toast.success("数据刷新完成", { description: result.message });
-        await utils.portfolio.snapshot.invalidate();
-        await utils.picks.daily.invalidate();
-        await utils.weeklyPicks.latest.invalidate();
-        await utils.equityCurve.getByBacktestId.invalidate();
+        await utils.strategies.list.invalidate();
+        await utils.strategies.getPicks.invalidate();
+        await utils.strategies.getEquity.invalidate();
+        await utils.risk.status.invalidate();
       } else {
         toast.error("刷新失败", { description: result.message });
       }
     },
-    onError: (err) => {
-      toast.error("刷新失败", { description: err.message });
-    },
+    onError: (err) => toast.error("刷新失败", { description: err.message }),
   });
 
-  const latestDate = dailyPicks?.tradeDate || weeklyPicks?.predictionDate || "-";
-
-  const dailyItems: PickItemView[] =
-    dailyPicks?.picks.map((p) => ({
+  const currentStrategy = strategies?.find((s) => s.id === profile);
+  const pickItems: PickItemView[] =
+    picks?.picks.map((p) => ({
       symbol: p.symbol,
       name: p.name,
       rank: p.rank,
-      close: p.latestClose,
-      weight: p.weight,
-      action: "持有",
-    })) || [];
-
-  const weeklyItems: PickItemView[] =
-    weeklyPicks?.picks.map((p) => ({
-      symbol: p.symbol,
-      name: p.name,
-      rank: p.rank,
-      score: p.score,
       close: p.close,
-      action: "买入",
+      weight: p.weight,
+      action: "持有" as const,
+      pnlPct: p.pnlPct,
     })) || [];
+
+  // Compute portfolio return from equity data
+  const firstEq = equity?.[0];
+  const lastEq = equity?.[equity.length - 1];
+  const eqReturn =
+    firstEq && lastEq
+      ? lastEq.normalizedValue / firstEq.normalizedValue - 1
+      : null;
+
+  // Strategy comparison
+  const bestReturn = Math.max(
+    ...(strategies || []).map((s) => s.totalReturn || 0),
+    0.01,
+  );
 
   return (
     <div className="min-h-screen pt-[90px] pb-12 px-6">
       <div className="max-w-[1200px] mx-auto space-y-8">
-        {/* Hero */}
-        <div className="animate-fade-in space-y-2">
-          <div className="flex items-center gap-2 text-[var(--cyan)]">
-            <Sparkles className="w-5 h-5" />
-            <span className="text-sm font-medium">AI 选股信号</span>
+        {/* ===== Hero ===== */}
+        <section className="animate-fade-in space-y-5">
+          <div>
+            <h1 className="text-3xl font-bold text-white mb-2">
+              AI 智能选股
+            </h1>
+            <p className="text-[var(--text-secondary)] max-w-2xl">
+              选择适合你的策略风格，查看 AI 推荐的精选股票。每个策略独立运作，有不同的选股侧重和风控参数。
+            </p>
           </div>
-          <h1 className="text-3xl font-bold text-white">今日 AI 推荐持仓</h1>
-          <p className="text-[var(--text-secondary)] max-w-2xl">
-            基于 LightGBM 模型对沪深 300 成分股打分，每日收盘后生成下一交易日的持仓建议。
-            最小时间维度为日线，周度版本为每周一次的调仓视角。
-          </p>
-          <div className="flex flex-wrap items-center gap-4 text-sm text-[var(--text-muted)] pt-1">
-            <span className="flex items-center gap-1.5">
-              <Calendar className="w-4 h-4" />
-              最新信号日期：{latestDate}
-            </span>
-            <span className="flex items-center gap-1.5">
-              <Clock className="w-4 h-4" />
-              更新频率：交易日 15:30 后
-            </span>
+
+          {/* Strategy selector */}
+          <div className="flex flex-wrap items-center gap-2">
+            {PROFILES.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => setProfile(p.id)}
+                className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                  profile === p.id
+                    ? "bg-[var(--cyan)]/15 text-[var(--cyan)] border border-[var(--cyan)]/20"
+                    : "bg-white/5 text-[var(--text-muted)] hover:text-white hover:bg-white/10 border border-transparent"
+                }`}
+              >
+                <span>{p.label}</span>
+                <span className="ml-1.5 text-[10px] opacity-60">{p.desc}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* Meta */}
+          <div className="flex flex-wrap items-center gap-4 text-xs text-[var(--text-muted)]">
+            <span>最新日期：{currentStrategy?.tradeDate || "-"}</span>
+            {riskStatus && (
+              <span
+                className={`px-2 py-0.5 rounded-full text-xs ${
+                  riskStatus.marketTrend === "trending"
+                    ? "bg-[var(--green)]/10 text-[var(--green)]"
+                    : "bg-[var(--orange)]/10 text-[var(--orange)]"
+                }`}
+              >
+                {riskStatus.marketTrend === "trending" ? "趋势市" : "震荡市"}
+              </span>
+            )}
             <button
               onClick={() => refreshMutation.mutate()}
               disabled={refreshMutation.isPending}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[var(--cyan)]/10 text-[var(--cyan)] hover:bg-[var(--cyan)]/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="text-[var(--cyan)] hover:underline disabled:opacity-50 ml-auto"
             >
-              <RefreshCw
-                className={`w-4 h-4 ${refreshMutation.isPending ? "animate-spin" : ""}`}
-              />
-              {refreshMutation.isPending ? "正在刷新..." : "手动刷新数据"}
+              {refreshMutation.isPending ? "刷新中..." : "手动刷新"}
             </button>
           </div>
+        </section>
+
+        {/* Risk disclaimer */}
+        <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
+          <ShieldAlert className="w-3.5 h-3.5 text-[var(--orange)] flex-shrink-0" />
+          以下为 AI 模型分析结果，仅供学习参考，不构成投资建议。
         </div>
 
-        {/* Disclaimer */}
-        <div className="flex items-start gap-3 p-4 rounded-xl bg-[var(--orange)]/10 border border-[var(--orange)]/20">
-          <ShieldAlert className="w-5 h-5 text-[var(--orange)] shrink-0 mt-0.5" />
-          <div>
-            <p className="text-sm text-[var(--orange)] font-medium">风险提示</p>
-            <p className="text-xs text-[var(--text-secondary)] mt-1">
-              以下股票由量化模型根据历史数据生成，仅供学习与研究参考，不构成任何投资建议。
-              股市有风险，入市需谨慎。请勿直接据此进行实盘交易。
-            </p>
-          </div>
-        </div>
-
-        {/* Portfolio + Mini Chart */}
-        {portfolio && (
-          <PortfolioSummary
-            cash={portfolio.cash}
-            marketValue={portfolio.marketValue}
-            totalValue={portfolio.totalValue}
-            positionsCount={portfolio.positionsCount}
-            dailyPnl={portfolio.dailyPnl}
-            dailyPnlPct={portfolio.dailyPnlPct}
-            tradeDate={portfolio.tradeDate}
-          />
+        {/* ===== Strategy Comparison ===== */}
+        {strategies && strategies.length > 0 && (
+          <section>
+            <h2 className="text-lg font-bold text-white mb-3">策略对比</h2>
+            <div className="grid grid-cols-5 gap-3">
+              {strategies.map((s) => (
+                <button
+                  key={s.id}
+                  onClick={() => setProfile(s.id)}
+                  className={`rounded-xl p-3 text-center transition-all cursor-pointer ${
+                    profile === s.id
+                      ? "bg-[var(--cyan)]/10 border border-[var(--cyan)]/20"
+                      : "bg-white/[0.03] border border-transparent hover:bg-white/[0.05]"
+                  }`}
+                >
+                  <p className="text-xs font-medium text-white mb-1">
+                    {s.name}
+                  </p>
+                  <p className="text-lg font-bold text-[var(--green)]">
+                    {s.totalReturn != null
+                      ? `${(s.totalReturn >= 0 ? "+" : "")}${(s.totalReturn * 100).toFixed(0)}%`
+                      : "-"}
+                  </p>
+                  <div className="h-1 bg-white/5 rounded-full mt-1.5 overflow-hidden">
+                    <div
+                      className="h-full bg-[var(--green)]/40 rounded-full"
+                      style={{
+                        width: `${Math.min(((s.totalReturn || 0) / bestReturn) * 100, 100)}%`,
+                      }}
+                    />
+                  </div>
+                  <p className="text-[10px] text-[var(--text-muted)] mt-1">
+                    {s.pickCount}只 · {s.name}
+                  </p>
+                </button>
+              ))}
+            </div>
+          </section>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2">
-            {/* Tabs */}
-            <div className="flex items-center gap-2 mb-4">
-              <button
-                onClick={() => setActiveTab("daily")}
-                className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
-                  activeTab === "daily"
-                    ? "bg-white/10 text-white"
-                    : "text-[var(--text-muted)] hover:text-white hover:bg-white/5"
-                }`}
-              >
-                日度策略
-              </button>
-              <button
-                onClick={() => setActiveTab("weekly")}
-                className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
-                  activeTab === "weekly"
-                    ? "bg-white/10 text-white"
-                    : "text-[var(--text-muted)] hover:text-white hover:bg-white/5"
-                }`}
-              >
-                周度策略
-              </button>
+        {/* ===== Selected Strategy Picks ===== */}
+        <section>
+          <h2 className="text-lg font-bold text-white mb-3">
+            {currentStrategy?.name || "均衡型"} · 当前持仓
+            <span className="text-sm font-normal text-[var(--text-muted)] ml-2">
+              {currentStrategy?.description}
+            </span>
+          </h2>
+          <PicksList
+            title=""
+            picks={pickItems}
+            emptyText="暂无持仓，请先刷新数据"
+            variant="cards"
+            cardVariant="daily"
+          />
+        </section>
+
+        {/* ===== Performance + Quality ===== */}
+        <section>
+          <h2 className="text-lg font-bold text-white mb-3">
+            历史表现 · {currentStrategy?.name || "均衡型"}
+          </h2>
+          <HomeEquityChart profile={profile} equityData={equity || []} />
+          {eqReturn != null && (
+            <div className="grid grid-cols-3 gap-4 mt-3">
+              <div className="text-center">
+                <p className="text-xs text-[var(--text-muted)]">组合收益</p>
+                <p className="text-sm font-bold text-[var(--green)]">
+                  {eqReturn >= 0 ? "+" : ""}
+                  {(eqReturn * 100).toFixed(1)}%
+                </p>
+              </div>
+              <div className="text-center">
+                <p className="text-xs text-[var(--text-muted)]">持仓数量</p>
+                <p className="text-sm font-bold text-white">
+                  {pickItems.length} 只
+                </p>
+              </div>
+              <div className="text-center">
+                <p className="text-xs text-[var(--text-muted)]">总资产</p>
+                <p className="text-sm font-bold text-white">
+                  ¥{(currentStrategy?.totalValue || 0).toLocaleString()}
+                </p>
+              </div>
             </div>
+          )}
+        </section>
 
-            {activeTab === "daily" ? (
-              <PicksList
-                title="日度持仓名单"
-                subtitle={`${dailyPicks?.strategy || "AI 日度选股"} · ${dailyPicks?.tradeDate || "-"}`}
-                picks={dailyItems}
-                emptyText="暂无日度持仓，请先运行 paper-trade run"
-              />
-            ) : (
-              <PicksList
-                title="周度选股名单"
-                subtitle={`每周 AI 选股报告 · ${weeklyPicks?.predictionDate || "-"}`}
-                picks={weeklyItems}
-                emptyText="暂无周度选股，请先运行 weekly-report"
-              />
-            )}
-          </div>
+        {/* ===== FAQ ===== */}
+        <section>
+          <SimpleFAQ items={faqItems} />
+        </section>
 
-          <div className="space-y-6">
-            <MiniEquityChart />
-            <GlassCard title="策略说明" subtitle="给普通投资者">
-              <ul className="space-y-3 text-sm text-[var(--text-secondary)]">
-                <li className="flex gap-2">
-                  <span className="text-[var(--cyan)]">•</span>
-                  <span>
-                    <strong className="text-white">日度策略</strong>：每 5 个交易日审视一次持仓，模型自动替换掉排名靠后的股票。
-                  </span>
-                </li>
-                <li className="flex gap-2">
-                  <span className="text-[var(--cyan)]">•</span>
-                  <span>
-                    <strong className="text-white">周度策略</strong>：以周为视角，筛选未来一周模型认为上涨概率最高的 10 只股票。
-                  </span>
-                </li>
-                <li className="flex gap-2">
-                  <span className="text-[var(--cyan)]">•</span>
-                  <span>
-                    想看模型原理、因子贡献、回测曲线，请进入“策略原理”页签。
-                  </span>
-                </li>
-              </ul>
-            </GlassCard>
-          </div>
-        </div>
+        <footer className="text-center pt-6 border-t border-white/5">
+          <p className="text-xs text-[var(--text-muted)]">
+            AifaQuant — AI 驱动的 A 股量化策略平台。历史表现不代表未来收益。
+          </p>
+        </footer>
       </div>
     </div>
   );

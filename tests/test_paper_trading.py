@@ -84,7 +84,7 @@ class TestSimulatedBroker:
 
 class TestPaperTradingEngine:
     def test_plan_rebalance(self):
-        engine = PaperTradingEngine()
+        engine = PaperTradingEngine(use_vol_sizing=False)
         broker = SimulatedBroker(initial_cash=1_000_000.0)
         broker.connect()
         broker._positions["A"] = {"shares": 500, "cost_basis": 90.0}

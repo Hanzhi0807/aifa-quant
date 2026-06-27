@@ -26,6 +26,7 @@ from ..models.rolling_trainer import RollingTrainer
 from ..paper_trading import PaperTradingEngine
 from ..research import generate_weekly_report
 from ..strategy import TopKDropoutStrategy
+from ..strategy.profiles import apply_profile_score
 from ..strategy.templates import get_template, list_templates
 
 app = typer.Typer(help="AifaQuant - A股 AI 量化研究框架")
@@ -195,8 +196,25 @@ def backtest(
         None, "--ensemble", help="Path to ensemble config JSON; overrides single model"
     ),
     yes: bool = typer.Option(False, "--yes", help="Skip iFind usage confirmation"),
+    profile: str | None = typer.Option(
+        None, "--profile", help="Strategy profile to apply factor weighting"
+    ),
+    save_paper_nav: bool = typer.Option(
+        False, "--save-paper-nav", help="Write equity curve to paper_nav for the selected profile"
+    ),
+    save_paper_positions: bool = typer.Option(
+        False, "--save-paper-positions", help="Write final positions to paper_positions for the selected profile"
+    ),
 ):
     """Run backtest using trained model and TopK-Dropout strategy."""
+    if profile:
+        from ..strategy.profiles import get_profile
+
+        pf = get_profile(profile)
+        if pf:
+            top_k = pf.top_k
+            print(f"[cyan]应用策略 profile {profile}: top_k={top_k}[/cyan]")
+
     if template:
         tmpl = get_template(template)
         top_k = tmpl.top_k
@@ -264,6 +282,8 @@ def backtest(
             print(f"[green]已加载模型: {model_path}[/green]")
         pred_df = features.dropna(subset=feature_cols).copy()
         pred_df["pred_score"] = model.predict(pred_df[feature_cols])
+        if profile:
+            pred_df = apply_profile_score(pred_df, profile, feature_cols)
         features = pred_df
 
     # Load raw quotes for execution
@@ -331,6 +351,58 @@ def backtest(
     metrics_path = report_dir / f"metrics_{start}_{end}{suffix}.json"
     with open(metrics_path, "w", encoding="utf-8") as f:
         json.dump(metrics, f, ensure_ascii=False, indent=2, default=str)
+
+    if save_paper_nav and profile:
+        from ..strategy.profiles import get_profile
+
+        pf = get_profile(profile)
+        profile_id = pf.id if pf else profile
+        print(f"[cyan]将权益曲线写入 paper_nav (profile={profile_id})...[/cyan]")
+        store = DuckDBStore(settings)
+        store.conn.execute(
+            "DELETE FROM paper_nav WHERE profile = ? AND trade_date >= ? AND trade_date <= ?",
+            [profile_id, pd.to_datetime(start).date(), pd.to_datetime(end).date()],
+        )
+        for _, row in equity.iterrows():
+            total = float(row["total_value"])
+            store.conn.execute(
+                """
+                INSERT INTO paper_nav (profile, trade_date, cash, market_value, total_value)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                [profile_id, pd.to_datetime(row["trade_date"]).date(), 0.0, total, total],
+            )
+        print(f"[green]已写入 {len(equity)} 条 paper_nav 记录[/green]")
+
+    if save_paper_positions and profile:
+        pf = get_profile(profile)
+        profile_id = pf.id if pf else profile
+        print(f"[cyan]将最终持仓写入 paper_positions (profile={profile_id})...[/cyan]")
+        store.conn.execute("DELETE FROM paper_positions WHERE profile = ?", [profile_id])
+        positions = [
+            (profile_id, sym, int(pos.shares), float(pos.cost_basis))
+            for sym, pos in engine.positions.items()
+            if pos.shares > 0
+        ]
+        if positions:
+            store.conn.executemany(
+                "INSERT INTO paper_positions (profile, symbol, shares, cost_basis) VALUES (?, ?, ?, ?)",
+                positions,
+            )
+
+        # Update the final NAV row so market_value > 0 and cash/positions are consistent.
+        final_total = float(equity.iloc[-1]["total_value"])
+        final_cash = float(engine.cash)
+        final_mv = final_total - final_cash
+        store.conn.execute(
+            """
+            UPDATE paper_nav
+            SET cash = ?, market_value = ?, total_value = ?
+            WHERE profile = ? AND trade_date = ?
+            """,
+            [final_cash, final_mv, final_total, profile_id, pd.to_datetime(end).date()],
+        )
+        print(f"[green]已写入 {len(positions)} 只持仓，最新净值 ¥{final_total:,.2f}[/green]")
 
     try:
         import matplotlib.pyplot as plt
@@ -776,71 +848,77 @@ def paper_run(
         "--corr-threshold",
         help="高相关性特征剔除阈值",
     ),
+    profile: str = typer.Option("balanced", "--profile", help="策略 profile（aggressive/balanced/conservative/growth/value）"),
+    all_profiles: bool = typer.Option(False, "--all-profiles", help="依次运行所有策略 profile"),
 ):
     """运行一次模拟交易循环。"""
-    if reset:
-        engine = PaperTradingEngine(initial_cash=cash)
-        engine.reset(cash=cash)
-        print("[cyan]已重置模拟账户[/cyan]")
+    from ..strategy.profiles import list_profiles
 
-    engine = PaperTradingEngine(
-        model_name=model_name,
-        top_k=top_k,
-        rebalance_freq=freq,
-        initial_cash=cash,
-        include_fundamental=include_fundamental,
-        include_macro=include_macro,
-        include_sentiment=include_sentiment,
-        corr_threshold=corr_threshold,
-    )
-
-    try:
-        result = engine.run(trade_date=date, dry_run=dry_run)
-    except Exception as e:
-        print(f"[red]模拟交易失败: {e}[/red]")
+    profiles = list_profiles() if all_profiles else [p for p in list_profiles() if p.id == profile]
+    if not profiles:
+        print(f"[red]未找到 profile: {profile}[/red]")
         raise typer.Exit(code=1)
 
-    print(f"\n[bold]交易日期: {result.trade_date.date()}[/bold]")
-    selected = result.signals[result.signals["selected"]]
-    print(f"[cyan]选股数量: {len(selected)} / {len(result.signals)}[/cyan]")
+    for pf in profiles:
+        if reset:
+            engine = PaperTradingEngine(initial_cash=cash, profile=pf.id)
+            engine.reset(cash=cash)
+            print(f"[cyan]已重置 {pf.label} 模拟账户[/cyan]")
 
-    sig_table = Table(title="选股信号")
-    sig_table.add_column("排名", style="cyan")
-    sig_table.add_column("股票", style="cyan")
-    sig_table.add_column("分数", style="magenta")
-    for i, row in selected.iterrows():
-        sig_table.add_row(str(row["rank"]), str(row["symbol"]), f"{row['score']:.4f}")
-    console.print(sig_table)
+        engine = PaperTradingEngine(
+            model_name=model_name,
+            top_k=pf.top_k,
+            rebalance_freq=freq,
+            initial_cash=cash,
+            include_fundamental=include_fundamental,
+            include_macro=include_macro,
+            include_sentiment=include_sentiment,
+            corr_threshold=corr_threshold,
+            profile=pf.id,
+        )
 
-    if result.orders:
-        order_table = Table(title="交易计划" if dry_run else "已执行订单")
-        order_table.add_column("股票", style="cyan")
-        order_table.add_column("方向", style="magenta")
-        order_table.add_column("数量", style="magenta")
-        order_table.add_column("状态", style="magenta")
-        for order in result.orders:
-            order_table.add_row(
-                str(order["symbol"]),
-                str(order["side"]).upper(),
-                str(order["quantity"]),
-                str(order.get("status", "planned")),
-            )
-        console.print(order_table)
-    else:
-        print("[yellow]今日无交易[/yellow]")
+        try:
+            result = engine.run(trade_date=date, dry_run=dry_run)
+        except Exception as e:
+            print(f"[red]{pf.label} 模拟交易失败: {e}[/red]")
+            continue
 
-    nav_table = Table(title="账户净值")
-    nav_table.add_column("项目", style="cyan")
-    nav_table.add_column("数值", style="magenta")
-    nav_table.add_row("现金", f"{result.cash:,.2f}")
-    nav_table.add_row("市值", f"{result.market_value:,.2f}")
-    nav_table.add_row("总资产", f"{result.total_value:,.2f}")
-    console.print(nav_table)
+        print(f"\n[bold]{pf.label}[/bold]")
+        print(f"[bold]交易日期: {result.trade_date.date()}[/bold]")
+        selected = result.signals[result.signals["selected"]]
+        print(f"[cyan]选股数量: {len(selected)} / {len(result.signals)}[/cyan]")
+        if result.market_choppy:
+            print("[yellow]⚠ 大盘震荡，已跳过新买入[/yellow]")
+
+        sig_table = Table(title=f"{pf.name} 选股信号")
+        sig_table.add_column("排名", style="cyan")
+        sig_table.add_column("股票", style="cyan")
+        sig_table.add_column("分数", style="magenta")
+        for i, row in selected.iterrows():
+            sig_table.add_row(str(row["rank"]), str(row["symbol"]), f"{row['score']:.4f}")
+        console.print(sig_table)
+
+        if result.stop_signals:
+            stop_table = Table(title="止损信号")
+            stop_table.add_column("股票", style="red")
+            stop_table.add_column("类型", style="yellow")
+            stop_table.add_column("原因", style="yellow")
+            for s in result.stop_signals:
+                stop_table.add_row(s.symbol, s.type, s.reason)
+            console.print(stop_table)
+
+        nav_table = Table(title=f"{pf.name} 账户净值")
+        nav_table.add_column("项目", style="cyan")
+        nav_table.add_column("数值", style="magenta")
+        nav_table.add_row("现金", f"{result.cash:,.2f}")
+        nav_table.add_row("市值", f"{result.market_value:,.2f}")
+        nav_table.add_row("总资产", f"{result.total_value:,.2f}")
+        console.print(nav_table)
 
     if dry_run:
         print("[yellow]这是 dry-run，未写入数据库[/yellow]")
     else:
-        print("[green]模拟交易状态已持久化到 DuckDB[/green]")
+        print("[green]所有策略状态已持久化到 DuckDB[/green]")
 
 
 if __name__ == "__main__":

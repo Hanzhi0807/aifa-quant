@@ -25,7 +25,7 @@ export function isDuckDBAvailable(): boolean {
   return existsSync(getDuckDBPath());
 }
 
-export async function queryDuckDB<T = any>(sql: string): Promise<T[]> {
+export async function queryDuckDB<T = any>(sql: string, params?: unknown[]): Promise<T[]> {
   if (!isDuckDBAvailable()) return [];
 
   let db: Database | null = null;
@@ -37,14 +37,19 @@ export async function queryDuckDB<T = any>(sql: string): Promise<T[]> {
     conn = db.connect();
 
     const rows = await new Promise<T[]>((resolve) => {
-      conn!.all(sql, (err, rows) => {
+      const cb = (err: any, rows: any[]) => {
         if (err) {
           console.error("DuckDB query error:", err);
           resolve([]);
         } else {
           resolve((rows || []) as T[]);
         }
-      });
+      };
+      if (params && params.length > 0) {
+        conn!.all(sql, ...params, cb);
+      } else {
+        conn!.all(sql, cb);
+      }
     });
     return rows;
   } catch (err) {
