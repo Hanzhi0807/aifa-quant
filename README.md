@@ -1,4 +1,4 @@
-# AifaQuant-爱发quant - A股 AI 量化研究与回测框架
+# AifaQuant-爱发量化 - A股 AI 量化研究与回测框架
 
 [![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue)](https://www.python.org/)
 ![License](https://img.shields.io/badge/license-MIT-green)
