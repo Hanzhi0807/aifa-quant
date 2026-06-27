@@ -80,12 +80,22 @@ export default function Home() {
       pnlPct: p.pnlPct,
     })) || [];
 
-  // Compute portfolio return from equity data
+  // Compute portfolio & benchmark returns from equity data
   const firstEq = equity?.[0];
   const lastEq = equity?.[equity.length - 1];
   const eqReturn =
     firstEq && lastEq
       ? lastEq.normalizedValue / firstEq.normalizedValue - 1
+      : null;
+  const csiReturn =
+    firstEq && lastEq &&
+    firstEq.csi300Normalized != null && lastEq.csi300Normalized != null
+      ? lastEq.csi300Normalized / firstEq.csi300Normalized - 1
+      : null;
+  const sseReturn =
+    firstEq && lastEq &&
+    firstEq.sseNormalized != null && lastEq.sseNormalized != null
+      ? lastEq.sseNormalized / firstEq.sseNormalized - 1
       : null;
 
   // Strategy comparison
@@ -220,18 +230,28 @@ export default function Home() {
           </h2>
           <HomeEquityChart profile={profile} equityData={equity || []} />
           {eqReturn != null && (
-            <div className="grid grid-cols-3 gap-4 mt-3">
+            <div className="grid grid-cols-4 gap-4 mt-3">
               <div className="text-center">
                 <p className="text-xs text-[var(--text-muted)]">组合收益</p>
-                <p className="text-sm font-bold text-[var(--green)]">
+                <p className={`text-sm font-bold ${eqReturn >= 0 ? "text-[var(--green)]" : "text-[var(--red)]"}`}>
                   {eqReturn >= 0 ? "+" : ""}
                   {(eqReturn * 100).toFixed(1)}%
                 </p>
               </div>
               <div className="text-center">
-                <p className="text-xs text-[var(--text-muted)]">持仓数量</p>
-                <p className="text-sm font-bold text-white">
-                  {pickItems.length} 只
+                <p className="text-xs text-[var(--text-muted)]">沪深300</p>
+                <p className={`text-sm font-bold ${(csiReturn ?? 0) >= 0 ? "text-[var(--green)]" : "text-[var(--red)]"}`}>
+                  {csiReturn != null
+                    ? `${csiReturn >= 0 ? "+" : ""}${(csiReturn * 100).toFixed(1)}%`
+                    : "-"}
+                </p>
+              </div>
+              <div className="text-center">
+                <p className="text-xs text-[var(--text-muted)]">上证指数</p>
+                <p className={`text-sm font-bold ${(sseReturn ?? 0) >= 0 ? "text-[var(--green)]" : "text-[var(--red)]"}`}>
+                  {sseReturn != null
+                    ? `${sseReturn >= 0 ? "+" : ""}${(sseReturn * 100).toFixed(1)}%`
+                    : "-"}
                 </p>
               </div>
               <div className="text-center">

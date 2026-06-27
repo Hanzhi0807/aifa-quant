@@ -9,6 +9,13 @@ interface NavRow { trade_date: Date; cash: number; market_value: number; total_v
 interface QuoteRow { symbol: string; close: number; trade_date: Date; }
 interface NameRow { symbol: string; name: string; }
 
+interface EquityPoint {
+  tradeDate: string;
+  normalizedValue: number;
+  csi300Normalized?: number;
+  sseNormalized?: number;
+}
+
 const PROFILE_LABELS: Record<string, { name: string; desc: string; topK: number }> = {
   aggressive:  { name: "激进型", desc: "高集中度，追求高收益", topK: 5 },
   balanced:    { name: "均衡型", desc: "攻守兼备，适合大多数人", topK: 8 },
@@ -172,18 +179,53 @@ export const strategiesRouter = createRouter({
       const window = await getProfileNavWindow(input.profile);
       if (!window) return null;
       const startStr = formatDate(window.startDate);
+      const endStr = formatDate(window.latest.trade_date);
       const rows = await queryDuckDB<NavRow>(
         `SELECT trade_date, total_value FROM paper_nav
-         WHERE profile = ? AND market_value > 0 AND trade_date >= ?
+         WHERE profile = ? AND market_value > 0 AND trade_date >= ? AND trade_date <= ?
          ORDER BY trade_date`,
-        [input.profile, startStr],
+        [input.profile, startStr, endStr],
       );
       if (rows.length < 2) return null;
       const first = Number(rows[0].total_value);
       if (first <= 0) return null;
-      return rows.map((r) => ({
-        tradeDate: formatDate(r.trade_date),
-        normalizedValue: Number((Number(r.total_value) / first).toFixed(6)),
-      }));
+
+      // Load benchmark closes for the same window
+      const benchRows = await queryDuckDB<QuoteRow>(
+        `SELECT symbol, trade_date, close FROM daily_quotes
+         WHERE symbol IN ('000300.SH', '000001.SH')
+           AND trade_date >= ? AND trade_date <= ?
+         ORDER BY symbol, trade_date`,
+        [startStr, endStr],
+      );
+
+      const csi = benchRows.filter((r) => r.symbol === "000300.SH");
+      const sse = benchRows.filter((r) => r.symbol === "000001.SH");
+      const csiFirst = csi.length > 0 ? Number(csi[0].close) : 0;
+      const sseFirst = sse.length > 0 ? Number(sse[0].close) : 0;
+      const csiMap = new Map(csi.map((r) => [formatDate(r.trade_date), Number(r.close)]));
+      const sseMap = new Map(sse.map((r) => [formatDate(r.trade_date), Number(r.close)]));
+
+      let lastCsi = csiFirst || 0;
+      let lastSse = sseFirst || 0;
+
+      const points: EquityPoint[] = rows.map((r) => {
+        const tradeDate = formatDate(r.trade_date);
+        if (csiMap.has(tradeDate)) lastCsi = csiMap.get(tradeDate)!;
+        if (sseMap.has(tradeDate)) lastSse = sseMap.get(tradeDate)!;
+        const point: EquityPoint = {
+          tradeDate,
+          normalizedValue: Number((Number(r.total_value) / first).toFixed(6)),
+        };
+        if (csiFirst > 0 && lastCsi > 0) {
+          point.csi300Normalized = Number((lastCsi / csiFirst).toFixed(6));
+        }
+        if (sseFirst > 0 && lastSse > 0) {
+          point.sseNormalized = Number((lastSse / sseFirst).toFixed(6));
+        }
+        return point;
+      });
+
+      return points;
     }),
 });

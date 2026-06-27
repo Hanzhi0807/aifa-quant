@@ -23,6 +23,7 @@ sys.path.insert(0, str(project_root))
 
 from aifa_quant.config.settings import Settings
 from aifa_quant.data.pipeline.daily_update import DailyUpdatePipeline
+from scripts.update_index_data import update_index_data
 
 logging.basicConfig(
     level=logging.INFO,
@@ -73,6 +74,13 @@ def main() -> None:
         update_daily_data()
     except Exception as e:
         logger.error("日线数据更新失败: %s", e)
+        raise
+
+    try:
+        update_index_data(incremental=True)
+        logger.info("指数基准数据更新已完成")
+    except Exception as e:
+        logger.error("指数基准数据更新失败: %s", e)
         raise
 
     try:
