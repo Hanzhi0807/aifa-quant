@@ -2,6 +2,7 @@ import { z } from "zod";
 import { createRouter, publicQuery } from "../middleware";
 import { exec } from "child_process";
 import { promisify } from "util";
+import { existsSync } from "fs";
 import { resolve } from "path";
 
 const execAsync = promisify(exec);
@@ -17,14 +18,24 @@ function getProjectRoot(): string {
   return resolve(process.cwd(), "..");
 }
 
+function resolvePython(projectRoot: string): string {
+  const candidates =
+    process.platform === "win32"
+      ? [resolve(projectRoot, ".venv", "Scripts", "python.exe")]
+      : [resolve(projectRoot, ".venv", "bin", "python")];
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
+  }
+  // Fall back to system Python (e.g. inside Docker or CI).
+  return process.platform === "win32" ? "python" : "python3";
+}
+
 export const refreshRouter = createRouter({
   run: publicQuery
     .input(z.object({}).optional())
     .mutation(async () => {
       const projectRoot = getProjectRoot();
-      const python = process.platform === "win32"
-        ? resolve(projectRoot, ".venv", "Scripts", "python.exe")
-        : resolve(projectRoot, ".venv", "bin", "python");
+      const python = resolvePython(projectRoot);
 
       const cmd = `"${python}" scripts/daily_refresh.py`;
 

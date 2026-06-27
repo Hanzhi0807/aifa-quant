@@ -21,7 +21,7 @@ RUN npm run build
 # ------------------------------------------------------------------------------
 # Stage 2: Python runtime with Node.js for the web server
 # ------------------------------------------------------------------------------
-FROM python:3.13-slim
+FROM python:3.12-slim
 
 # Install system dependencies for Python data packages and Node native addons
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -45,6 +45,9 @@ COPY --from=web-build /app/web/package.json ./web/package.json
 
 # Copy the application source so the CLI works inside the container
 COPY aifa_quant/ ./aifa_quant/
+
+# Copy maintenance scripts used by the web "refresh" button
+COPY scripts/ ./scripts/
 
 # Seed an empty data_store directory (mount a real DuckDB file here)
 RUN mkdir -p /app/data_store
