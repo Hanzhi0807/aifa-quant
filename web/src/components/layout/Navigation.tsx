@@ -2,11 +2,10 @@ import { Link, useLocation } from "react-router";
 import { Github, Activity } from "lucide-react";
 
 const navItems = [
-  { label: "概览", path: "/" },
+  { label: "首页", path: "/" },
+  { label: "策略原理", path: "/performance" },
   { label: "回测", path: "/backtest" },
-  { label: "模型", path: "/models" },
   { label: "数据", path: "/data" },
-  { label: "指标", path: "/metrics" },
 ];
 
 export default function Navigation() {
@@ -15,7 +14,6 @@ export default function Navigation() {
   return (
     <nav className="nav-glass fixed top-0 left-0 right-0 z-50 h-[70px]">
       <div className="max-w-[1400px] mx-auto h-full flex items-center justify-between px-6">
-        {/* Logo */}
         <Link to="/" className="flex items-center gap-2 group">
           <Activity className="w-6 h-6 text-[var(--cyan)]" />
           <span className="text-white font-bold text-xl tracking-wide">
@@ -23,7 +21,6 @@ export default function Navigation() {
           </span>
         </Link>
 
-        {/* Nav Items */}
         <div className="flex items-center gap-1">
           {navItems.map((item) => {
             const isActive =
@@ -46,7 +43,6 @@ export default function Navigation() {
           })}
         </div>
 
-        {/* GitHub Link */}
         <a
           href="https://github.com/ivyzhi0807/aifa-quant"
           target="_blank"
