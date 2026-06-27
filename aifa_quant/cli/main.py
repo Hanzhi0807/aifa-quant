@@ -402,7 +402,7 @@ def backtest(
             """,
             [final_cash, final_mv, final_total, profile_id, pd.to_datetime(end).date()],
         )
-        print(f"[green]已写入 {len(positions)} 只持仓，最新净值 ¥{final_total:,.2f}[/green]")
+        print(f"[green]已写入 {len(positions)} 只持仓，最新净值 {final_total:,.2f} 元[/green]")
 
     try:
         import matplotlib.pyplot as plt

@@ -1,10 +1,13 @@
-"""Resume AkShare daily quote download for missing CSI300 symbols."""
+"""Resume AkShare daily quote download for missing CSI300/CSI500/CSI1000 symbols."""
 
 import time
 import duckdb
 from aifa_quant.config.settings import Settings
 from aifa_quant.data.adapters import AkShareAdapter
 from aifa_quant.data.storage import DuckDBStore
+
+INDEX_QUERIES = ["沪深300", "中证500", "中证1000"]
+START_DATE = "20250101"
 
 
 def main():
@@ -21,14 +24,21 @@ def main():
         existing = set()
     conn.close()
 
-    universe = adapter.get_stock_universe("沪深300")
+    universe: set[str] = set()
+    for query in INDEX_QUERIES:
+        try:
+            universe.update(adapter.get_stock_universe(query))
+        except Exception as e:
+            print(f"[WARN] 获取 {query} 成分股失败: {e}")
+    universe = sorted(universe)
+
     missing = [s for s in universe if s not in existing]
     print(f"已有 {len(existing)} 只，目标 {len(universe)} 只，待下载 {len(missing)} 只")
 
     total_rows = 0
     for i, symbol in enumerate(missing, 1):
         try:
-            df = adapter.get_daily_data(symbol, start_date="20230101", end_date="20241231")
+            df = adapter.get_daily_data(symbol, start_date=START_DATE, end_date="20261231")
             if df.empty:
                 print(f"[{i}/{len(missing)}] {symbol}: 无数据")
                 continue

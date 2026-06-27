@@ -10,7 +10,7 @@ sys.path.insert(0, str(project_root))
 from aifa_quant.data.adapters.akshare_adapter import AkShareAdapter
 from aifa_quant.data.storage.duckdb_store import DuckDBStore
 
-INDEX_SYMBOLS = ["000300.SH", "000001.SH"]
+INDEX_SYMBOLS = ["000300.SH", "000001.SH", "000905.SH", "000852.SH"]
 
 
 def update_index_data(

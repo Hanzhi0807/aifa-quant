@@ -4,6 +4,7 @@ import pandas as pd
 
 from ..config.settings import Settings
 from ..data.adapters import EDBMCPAdapter, StockMCPAdapter, build_free_sentiment_features
+from ..data.constants import INDEX_SYMBOLS
 from ..data.storage import DuckDBStore
 from ..data.validation import DataValidator
 from .alpha_factors import compute_alpha_factors, list_alpha_factors
@@ -37,6 +38,9 @@ class FeatureBuilder:
     ) -> pd.DataFrame:
         """Load raw daily quotes from DuckDB and validate them."""
         df = self.store.load_daily_quotes(symbols, start_date, end_date)
+        # Exclude benchmark indices from the feature matrix so they are never picked as stocks
+        if not df.empty and "symbol" in df.columns:
+            df = df[~df["symbol"].isin(INDEX_SYMBOLS)].copy()
         return DataValidator.validate_daily_quotes(df)
 
     @staticmethod

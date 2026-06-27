@@ -146,7 +146,7 @@ class ATRStopManager:
             return StopSignal(
                 symbol=symbol,
                 type="drawdown_stop",
-                reason=f"从高点 ¥{peak_price:.2f} 回撤 ¥{drawdown:.2f} 超 {self.drawdown_atr}×ATR",
+                reason=f"从高点 {peak_price:.2f} 回撤 {drawdown:.2f} 超 {self.drawdown_atr}×ATR",
                 current_price=current_price,
                 trigger_price=peak_price - self.drawdown_atr * atr,
             )
