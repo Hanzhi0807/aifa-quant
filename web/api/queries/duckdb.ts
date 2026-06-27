@@ -21,41 +21,43 @@ export function getDataStorePath(subPath: string): string {
   return resolve(root, subPath);
 }
 
-let dbInstance: Database | null = null;
-let connectionInstance: Connection | null = null;
-
 export function isDuckDBAvailable(): boolean {
   return existsSync(getDuckDBPath());
 }
 
-async function getConnection(): Promise<Connection | null> {
-  if (!isDuckDBAvailable()) return null;
-  if (connectionInstance) return connectionInstance;
+export async function queryDuckDB<T = any>(sql: string): Promise<T[]> {
+  if (!isDuckDBAvailable()) return [];
 
+  let db: Database | null = null;
+  let conn: Connection | null = null;
   try {
     const duckdbMod = await import("duckdb");
     const duckdb = duckdbMod.default || duckdbMod;
-    dbInstance = new duckdb.Database(getDuckDBPath(), duckdb.OPEN_READONLY);
-    connectionInstance = dbInstance.connect();
-    return connectionInstance;
-  } catch (err) {
-    console.error("Failed to initialize DuckDB:", err);
-    return null;
-  }
-}
+    db = new duckdb.Database(getDuckDBPath(), duckdb.OPEN_READONLY);
+    conn = db.connect();
 
-export async function queryDuckDB<T = any>(sql: string): Promise<T[]> {
-  const conn = await getConnection();
-  if (!conn) return [];
-
-  return new Promise((resolve) => {
-    conn.all(sql, (err, rows) => {
-      if (err) {
-        console.error("DuckDB query error:", err);
-        resolve([]);
-      } else {
-        resolve((rows || []) as T[]);
-      }
+    const rows = await new Promise<T[]>((resolve) => {
+      conn!.all(sql, (err, rows) => {
+        if (err) {
+          console.error("DuckDB query error:", err);
+          resolve([]);
+        } else {
+          resolve((rows || []) as T[]);
+        }
+      });
     });
-  });
+    return rows;
+  } catch (err) {
+    console.error("Failed to query DuckDB:", err);
+    return [];
+  } finally {
+    // Close per-query so the web server does not hold a persistent lock
+    // on the DuckDB file; this lets daily_refresh.py open it exclusively.
+    try {
+      conn?.close();
+    } catch {}
+    try {
+      db?.close();
+    } catch {}
+  }
 }

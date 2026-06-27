@@ -50,7 +50,12 @@ def update_daily_data() -> int:
     symbols = pipeline.fetch_stock_universe("沪深300")
     logger.info("沪深300成分股: %d 只", len(symbols))
 
-    today = datetime.now().strftime("%Y%m%d")
+    now = datetime.now()
+    if now.weekday() >= 5:
+        logger.info("今日为周末/非交易日，跳过日线增量更新")
+        return 0
+
+    today = now.strftime("%Y%m%d")
     rows = pipeline.update_daily_quotes(
         symbols=symbols,
         start_date=None,  # incremental from latest stored date
