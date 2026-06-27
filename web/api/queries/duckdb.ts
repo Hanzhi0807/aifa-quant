@@ -25,6 +25,30 @@ export function isDuckDBAvailable(): boolean {
   return existsSync(getDuckDBPath());
 }
 
+async function closeConnection(conn: Connection | null): Promise<void> {
+  if (!conn) return;
+  return new Promise((resolve) => {
+    conn.close((err: any) => {
+      if (err) {
+        console.error("DuckDB connection close error:", err);
+      }
+      resolve();
+    });
+  });
+}
+
+async function closeDatabase(db: Database | null): Promise<void> {
+  if (!db) return;
+  return new Promise((resolve) => {
+    db.close((err: any) => {
+      if (err) {
+        console.error("DuckDB database close error:", err);
+      }
+      resolve();
+    });
+  });
+}
+
 export async function queryDuckDB<T = any>(sql: string, params?: unknown[]): Promise<T[]> {
   if (!isDuckDBAvailable()) return [];
 
@@ -56,13 +80,10 @@ export async function queryDuckDB<T = any>(sql: string, params?: unknown[]): Pro
     console.error("Failed to query DuckDB:", err);
     return [];
   } finally {
-    // Close per-query so the web server does not hold a persistent lock
-    // on the DuckDB file; this lets daily_refresh.py open it exclusively.
-    try {
-      conn?.close();
-    } catch {}
-    try {
-      db?.close();
-    } catch {}
+    // Close in reverse order and await completion so the web server does not
+    // hold a persistent lock on the DuckDB file; this lets daily_refresh.py
+    // open it exclusively right after a query finishes.
+    await closeConnection(conn);
+    await closeDatabase(db);
   }
 }
