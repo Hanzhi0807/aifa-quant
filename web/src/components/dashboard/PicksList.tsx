@@ -3,6 +3,7 @@ import GlassCard from "../layout/GlassCard";
 
 export interface PickItemView {
   symbol: string;
+  name?: string;
   rank: number;
   score?: number;
   close?: number;
@@ -56,7 +57,10 @@ export default function PicksList({
                   </div>
                   <div>
                     <p className="text-base font-medium text-white">
-                      {pick.symbol}
+                      {pick.name || pick.symbol}
+                      <span className="ml-2 text-xs text-[var(--text-muted)] font-normal">
+                        {pick.symbol}
+                      </span>
                     </p>
                     {typeof pick.close === "number" && (
                       <p className="text-xs text-[var(--text-muted)]">

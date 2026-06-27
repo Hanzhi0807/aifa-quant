@@ -1,11 +1,12 @@
 import { createRouter, publicQuery } from "../middleware";
-import { getDataStorePath } from "../queries/duckdb";
+import { getDataStorePath, queryDuckDB } from "../queries/duckdb";
 import { readdir, readFile } from "fs/promises";
 import { join } from "path";
 
 export interface WeeklyPick {
   rank: number;
   symbol: string;
+  name?: string;
   score: number;
   close: number;
 }
@@ -41,7 +42,7 @@ function parseMarkdownTable(content: string): WeeklyPick[] {
         const score = parseFloat(cells[2]);
         const close = parseFloat(cells[3]);
         if (!isNaN(rank) && symbol && !isNaN(score) && !isNaN(close)) {
-          picks.push({ rank, symbol, score, close });
+          picks.push({ rank, symbol, name: symbol, score, close });
         }
       }
     }
@@ -65,11 +66,24 @@ async function readLatestWeeklyReport(): Promise<WeeklyPicksResult | null> {
     const predictionMatch = content.match(/\*\*预测日期\*\*:\s*(\d{4}-\d{2}-\d{2})/);
     const benchmarkMatch = content.match(/\*\*基准指数\*\*:\s*(.+?)\s+\(/);
 
+    let picks = parseMarkdownTable(content);
+    if (picks.length > 0) {
+      const symbols = picks.map((p) => `'${p.symbol}'`).join(",");
+      const nameRows = await queryDuckDB<{ symbol: string; name: string }>(
+        `SELECT symbol, COALESCE(name, symbol) AS name FROM stock_universe WHERE symbol IN (${symbols})`
+      );
+      const nameMap = new Map(nameRows.map((r) => [r.symbol, r.name]));
+      picks = picks.map((p) => ({
+        ...p,
+        name: nameMap.get(p.symbol) || p.symbol,
+      }));
+    }
+
     return {
       generatedAt: generatedMatch ? generatedMatch[1].trim() : "-",
       predictionDate: predictionMatch ? predictionMatch[1] : "-",
       benchmark: benchmarkMatch ? benchmarkMatch[1].trim() : "沪深300",
-      picks: parseMarkdownTable(content),
+      picks,
     };
   } catch (err) {
     console.error("Failed to read weekly report:", err);

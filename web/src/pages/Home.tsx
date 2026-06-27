@@ -37,6 +37,7 @@ export default function Home() {
   const dailyItems: PickItemView[] =
     dailyPicks?.picks.map((p) => ({
       symbol: p.symbol,
+      name: p.name,
       rank: p.rank,
       close: p.latestClose,
       weight: p.weight,
@@ -46,6 +47,7 @@ export default function Home() {
   const weeklyItems: PickItemView[] =
     weeklyPicks?.picks.map((p) => ({
       symbol: p.symbol,
+      name: p.name,
       rank: p.rank,
       score: p.score,
       close: p.close,

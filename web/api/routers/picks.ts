@@ -22,6 +22,7 @@ interface NavRow {
 
 export interface PickItem {
   symbol: string;
+  name: string;
   rank: number;
   shares: number;
   costBasis: number;
@@ -60,8 +61,11 @@ export const picksRouter = createRouter({
       if (!navRow) return null;
 
       const totalValue = Number(navRow.total_value) || 1;
-      const positions = await queryDuckDB<PositionRow>(
-        `SELECT symbol, shares, cost_basis FROM paper_positions ORDER BY symbol`
+      const positions = await queryDuckDB<PositionRow & { name?: string }>(
+        `SELECT p.symbol, p.shares, p.cost_basis, COALESCE(u.name, p.symbol) AS name
+         FROM paper_positions p
+         LEFT JOIN stock_universe u ON p.symbol = u.symbol
+         ORDER BY p.symbol`
       );
 
       // Fetch latest close for each held symbol
@@ -92,6 +96,7 @@ export const picksRouter = createRouter({
             costValue > 0 ? (unrealizedPnl / costValue) : 0;
           return {
             symbol: pos.symbol,
+            name: pos.name || pos.symbol,
             rank: idx + 1,
             shares: Number(pos.shares),
             costBasis: Number(pos.cost_basis),
