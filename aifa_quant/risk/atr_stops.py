@@ -14,7 +14,7 @@ import pandas as pd
 @dataclass
 class StopSignal:
     symbol: str
-    type: str        # "stop_loss" | "take_profit" | "crash_stop" | "drawdown_stop"
+    type: str  # "stop_loss" | "take_profit" | "crash_stop" | "drawdown_stop"
     reason: str
     current_price: float
     trigger_price: float
@@ -77,9 +77,7 @@ class ATRStopManager:
     # ------------------------------------------------------------------
     # Layer 1 — Basic stop-loss / take-profit
     # ------------------------------------------------------------------
-    def _check_basic_stop(
-        self, symbol: str, cost_basis: float, current_price: float, atr: float
-    ) -> StopSignal | None:
+    def _check_basic_stop(self, symbol: str, cost_basis: float, current_price: float, atr: float) -> StopSignal | None:
         pnl_ratio = (current_price - cost_basis) / cost_basis
         atr_ratio = atr / cost_basis
 
@@ -87,7 +85,7 @@ class ATRStopManager:
             return StopSignal(
                 symbol=symbol,
                 type="stop_loss",
-                reason=f"亏损 {-pnl_ratio*100:.1f}% 超 {self.stop_loss_atr}×ATR",
+                reason=f"亏损 {-pnl_ratio * 100:.1f}% 超 {self.stop_loss_atr}×ATR",
                 current_price=current_price,
                 trigger_price=cost_basis * (1 - self.stop_loss_atr * atr_ratio),
             )
@@ -96,7 +94,7 @@ class ATRStopManager:
             return StopSignal(
                 symbol=symbol,
                 type="take_profit",
-                reason=f"盈利 {pnl_ratio*100:.1f}% 达 {self.stop_win_atr}×ATR",
+                reason=f"盈利 {pnl_ratio * 100:.1f}% 达 {self.stop_win_atr}×ATR",
                 current_price=current_price,
                 trigger_price=cost_basis * (1 + self.stop_win_atr * atr_ratio),
             )
@@ -117,7 +115,7 @@ class ATRStopManager:
             return StopSignal(
                 symbol=symbol,
                 type="crash_stop",
-                reason=f"单日跌幅 {daily_drop/prev_close*100:.1f}% 超 {self.crash_atr}×ATR({atr:.2f})",
+                reason=f"单日跌幅 {daily_drop / prev_close * 100:.1f}% 超 {self.crash_atr}×ATR({atr:.2f})",
                 current_price=current_price,
                 trigger_price=prev_close - self.crash_atr * atr,
             )

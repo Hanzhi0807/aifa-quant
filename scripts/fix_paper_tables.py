@@ -1,4 +1,5 @@
 """Fix paper trading tables — add composite primary key with profile."""
+
 import duckdb
 from pathlib import Path
 

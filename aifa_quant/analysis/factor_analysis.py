@@ -20,9 +20,7 @@ def _forward_returns(
     df = df.copy()
     df = df.sort_values(["symbol", "trade_date"])
     for h in horizons:
-        df[f"future_return_{h}d"] = (
-            df.groupby("symbol")[price_col].shift(-h) / df[price_col] - 1
-        )
+        df[f"future_return_{h}d"] = df.groupby("symbol")[price_col].shift(-h) / df[price_col] - 1
     return df
 
 
@@ -104,9 +102,7 @@ def compute_quantile_returns(
     def _quantile_return(group: pd.DataFrame) -> pd.DataFrame:
         if len(group) < min_obs:
             return pd.DataFrame(columns=["trade_date", "quantile", "mean_return"])
-        group["quantile"] = pd.qcut(
-            group[feature_col], q=n_quantiles, labels=False, duplicates="drop"
-        )
+        group["quantile"] = pd.qcut(group[feature_col], q=n_quantiles, labels=False, duplicates="drop")
         return (
             group.groupby("quantile", as_index=False)[forward_return_col]
             .mean()

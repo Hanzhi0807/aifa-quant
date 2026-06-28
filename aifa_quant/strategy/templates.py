@@ -62,9 +62,7 @@ TEMPLATES: dict[str, StrategyTemplate] = {
 
 def get_template(name: str) -> StrategyTemplate:
     if name not in TEMPLATES:
-        raise ValueError(
-            f"Unknown strategy template: {name}. Available: {', '.join(TEMPLATES.keys())}"
-        )
+        raise ValueError(f"Unknown strategy template: {name}. Available: {', '.join(TEMPLATES.keys())}")
     return TEMPLATES[name]
 
 

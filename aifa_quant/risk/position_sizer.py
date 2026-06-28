@@ -51,9 +51,7 @@ class VolatilityPositionSizer:
         for sym in selected_symbols:
             sym_quotes = quotes[quotes["symbol"] == sym].sort_values("trade_date")
             atr = self._compute_atr(sym_quotes, self.atr_window)
-            last_price = (
-                float(sym_quotes.iloc[-1]["close"]) if not sym_quotes.empty else 10.0
-            )
+            last_price = float(sym_quotes.iloc[-1]["close"]) if not sym_quotes.empty else 10.0
             prices[sym] = last_price
             if atr and atr > 0:
                 atrs[sym] = atr

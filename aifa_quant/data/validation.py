@@ -54,9 +54,5 @@ class DataValidator:
             return df
 
         df = df.copy()
-        df["price_inconsistent"] = (
-            (df["high"] < df["low"])
-            | (df["close"] < df["low"])
-            | (df["close"] > df["high"])
-        )
+        df["price_inconsistent"] = (df["high"] < df["low"]) | (df["close"] < df["low"]) | (df["close"] > df["high"])
         return df

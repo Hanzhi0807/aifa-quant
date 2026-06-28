@@ -80,9 +80,7 @@ def data_update(
     start: str = typer.Option("20230101", "--start", help="Start date YYYYMMDD"),
     end: str = typer.Option("20241231", "--end", help="End date YYYYMMDD"),
     full: bool = typer.Option(False, "--full", help="Full refresh instead of incremental"),
-    universe: str = typer.Option(
-        "沪深300", "--universe", help="Stock universe query (e.g., 上证50, 沪深300, 全部A股)"
-    ),
+    universe: str = typer.Option("沪深300", "--universe", help="Stock universe query (e.g., 上证50, 沪深300, 全部A股)"),
     sample: int | None = typer.Option(None, "--sample", help="Limit universe to first N stocks for testing"),
     workers: int = typer.Option(3, "--workers", help="Concurrent download workers"),
     fundamental: bool = typer.Option(False, "--fundamental", help="Also fetch and cache PE/PB/ROE fundamental data"),
@@ -90,9 +88,7 @@ def data_update(
     skip_daily: bool = typer.Option(
         False, "--skip-daily", help="Skip daily quote download (useful when only updating fundamental/macro)"
     ),
-    source: str = typer.Option(
-        "akshare", "--source", help="Data source: akshare (default), tushare, or ifind"
-    ),
+    source: str = typer.Option("akshare", "--source", help="Data source: akshare (default), tushare, or ifind"),
     yes: bool = typer.Option(False, "--yes", help="Skip iFind usage confirmation"),
 ):
     """Fetch daily quotes from the configured source and persist to DuckDB."""
@@ -121,6 +117,7 @@ def data_update(
 
     if symbol_file:
         from pathlib import Path
+
         symbols = [line.strip() for line in Path(symbol_file).read_text(encoding="utf-8").splitlines() if line.strip()]
 
     pipeline = DailyUpdatePipeline(Settings(), max_workers=workers, data_source=source)
@@ -145,9 +142,7 @@ def data_update(
         print("[cyan]已跳过日线下载[/cyan]")
 
     if fundamental:
-        fundamental_rows = pipeline.update_fundamental_data(
-            symbols=target_symbols, start_date=start, end_date=end
-        )
+        fundamental_rows = pipeline.update_fundamental_data(symbols=target_symbols, start_date=start, end_date=end)
         print(f"[bold green]基本面数据共写入 {fundamental_rows} 条[/bold green]")
 
     if macro:
@@ -160,9 +155,7 @@ def backtest(
     start: str = typer.Option("20240101", "--start", help="Backtest start date YYYYMMDD"),
     end: str = typer.Option("20241231", "--end", help="Backtest end date YYYYMMDD"),
     model_name: str = typer.Option("lgb_stock_selector", "--model", help="Model artifact name"),
-    strategy_name: str = typer.Option(
-        "topk_dropout", "--strategy", help="Strategy name: topk_dropout (default)"
-    ),
+    strategy_name: str = typer.Option("topk_dropout", "--strategy", help="Strategy name: topk_dropout (default)"),
     template: str | None = typer.Option(
         None, "--template", help="Strategy template name (overrides top_k/freq/dropout)"
     ),
@@ -178,9 +171,7 @@ def backtest(
         True, "--fundamental/--no-fundamental", help="Include fundamental factors (PE/PB/ROE)"
     ),
     include_macro: bool = typer.Option(True, "--macro/--no-macro", help="Include macro factors (CPI/PMI/M2)"),
-    include_sentiment: bool = typer.Option(
-        True, "--sentiment/--no-sentiment", help="Include news sentiment factors"
-    ),
+    include_sentiment: bool = typer.Option(True, "--sentiment/--no-sentiment", help="Include news sentiment factors"),
     corr_threshold: float = typer.Option(
         0.95,
         "--corr-threshold",
@@ -189,16 +180,12 @@ def backtest(
     cache_only: bool = typer.Option(
         False, "--cache-only", help="Only use cached fundamental/macro data; do not call iFind for missing data"
     ),
-    source: str = typer.Option(
-        "akshare", "--source", help="Data source: akshare (default), tushare, or ifind"
-    ),
+    source: str = typer.Option("akshare", "--source", help="Data source: akshare (default), tushare, or ifind"),
     ensemble_path: str | None = typer.Option(
         None, "--ensemble", help="Path to ensemble config JSON; overrides single model"
     ),
     yes: bool = typer.Option(False, "--yes", help="Skip iFind usage confirmation"),
-    profile: str | None = typer.Option(
-        None, "--profile", help="Strategy profile to apply factor weighting"
-    ),
+    profile: str | None = typer.Option(None, "--profile", help="Strategy profile to apply factor weighting"),
     save_paper_nav: bool = typer.Option(
         False, "--save-paper-nav", help="Write equity curve to paper_nav for the selected profile"
     ),
@@ -223,9 +210,7 @@ def backtest(
             dropout_threshold = tmpl.dropout_threshold
         print(f"[cyan]应用策略模板 {template}: top_k={top_k}, freq={freq}, dropout={dropout_threshold}[/cyan]")
 
-    ifind_used = source == "ifind" or (
-        (include_fundamental or include_macro or include_sentiment) and not cache_only
-    )
+    ifind_used = source == "ifind" or ((include_fundamental or include_macro or include_sentiment) and not cache_only)
     if ifind_used:
         action_parts = [f"source={source}"]
         if include_fundamental and not cache_only:
@@ -426,22 +411,19 @@ def backtest(
         print(f"[yellow]绘图失败: {e}[/yellow]")
 
 
-
 @app.command()
 def factor_analysis(
     start: str = typer.Option("20230101", "--start", help="Start date YYYYMMDD"),
     end: str = typer.Option("20241231", "--end", help="End date YYYYMMDD"),
-    feature: str | None = typer.Option(None, "--feature", help="Analyze a single feature; if omitted, analyze all features"),
+    feature: str | None = typer.Option(
+        None, "--feature", help="Analyze a single feature; if omitted, analyze all features"
+    ),
     method: str = typer.Option("spearman", "--method", help="IC method: pearson or spearman"),
     horizon: int = typer.Option(5, "--horizon", help="Forward return horizon in days"),
     n_quantiles: int = typer.Option(10, "--quantiles", help="Number of quantile buckets"),
-    include_sentiment: bool = typer.Option(
-        False, "--sentiment/--no-sentiment", help="Include news sentiment factors"
-    ),
+    include_sentiment: bool = typer.Option(False, "--sentiment/--no-sentiment", help="Include news sentiment factors"),
     corr_threshold: float = typer.Option(0.95, "--corr-threshold", help="Drop highly correlated features"),
-    cache_only: bool = typer.Option(
-        True, "--cache-only", help="Only use cached fundamental/macro data"
-    ),
+    cache_only: bool = typer.Option(True, "--cache-only", help="Only use cached fundamental/macro data"),
     yes: bool = typer.Option(False, "--yes", help="Skip iFind usage confirmation"),
 ):
     """Analyze factor effectiveness (IC/RankIC/ICIR/quantile/decay)."""
@@ -568,9 +550,7 @@ def train(
     end: str = typer.Option("20241231", "--end", help="Training end date YYYYMMDD"),
     horizon: int = typer.Option(5, "--horizon", help="Forecast horizon in days"),
     model_name: str = typer.Option("lgb_stock_selector", "--name", help="Model artifact name"),
-    model_type: str = typer.Option(
-        "binary", "--model-type", help="Model type: binary (default) or lambdarank"
-    ),
+    model_type: str = typer.Option("binary", "--model-type", help="Model type: binary (default) or lambdarank"),
     template: str | None = typer.Option(
         None, "--template", help="Strategy template name (overrides horizon/model_type)"
     ),
@@ -578,9 +558,7 @@ def train(
         True, "--fundamental/--no-fundamental", help="Include fundamental factors (PE/PB/ROE)"
     ),
     include_macro: bool = typer.Option(True, "--macro/--no-macro", help="Include macro factors (CPI/PMI/M2)"),
-    include_sentiment: bool = typer.Option(
-        True, "--sentiment/--no-sentiment", help="Include news sentiment factors"
-    ),
+    include_sentiment: bool = typer.Option(True, "--sentiment/--no-sentiment", help="Include news sentiment factors"),
     corr_threshold: float = typer.Option(
         0.95,
         "--corr-threshold",
@@ -598,9 +576,7 @@ def train(
         model_type = tmpl.model_type
         print(f"[cyan]应用策略模板 {template}: horizon={horizon}, model_type={model_type}[/cyan]")
 
-    ifind_used = (
-        (include_fundamental or include_macro) and not cache_only
-    ) or include_sentiment
+    ifind_used = ((include_fundamental or include_macro) and not cache_only) or include_sentiment
     if ifind_used:
         action_parts = []
         if include_fundamental and not cache_only:
@@ -633,6 +609,7 @@ def train(
 
     if model_type == "lambdarank":
         print(f"[yellow]训练 LambdaRank 模型，样本数: {len(df_clean)}, 特征数: {len(features)}[/yellow]")
+
         # Bin future returns within each cross-section into 5 ordinal ranks.
         def _bin_returns(x: pd.Series) -> pd.Series:
             if len(x) < 5:
@@ -698,13 +675,9 @@ def explain(
     end: str = typer.Option("20241231", "--end", help="Feature end date YYYYMMDD"),
     max_samples: int = typer.Option(500, "--max-samples", help="Max rows for TreeSHAP"),
     output_dir: str = typer.Option("./data_store/reports/shap", "--output", help="Directory to save SHAP outputs"),
-    include_sentiment: bool = typer.Option(
-        True, "--sentiment/--no-sentiment", help="Include news sentiment factors"
-    ),
+    include_sentiment: bool = typer.Option(True, "--sentiment/--no-sentiment", help="Include news sentiment factors"),
     corr_threshold: float = typer.Option(0.95, "--corr-threshold", help="Drop highly correlated features"),
-    cache_only: bool = typer.Option(
-        False, "--cache-only", help="Only use cached fundamental/macro data"
-    ),
+    cache_only: bool = typer.Option(False, "--cache-only", help="Only use cached fundamental/macro data"),
     yes: bool = typer.Option(False, "--yes", help="Skip iFind usage confirmation"),
 ):
     """Explain model predictions using SHAP."""
@@ -836,19 +809,17 @@ def paper_run(
     cash: float = typer.Option(1_000_000.0, "--cash", help="初始资金"),
     dry_run: bool = typer.Option(False, "--dry-run", help="只打印计划交易，不写入数据库"),
     reset: bool = typer.Option(False, "--reset", help="运行前先清空模拟账户"),
-    include_fundamental: bool = typer.Option(
-        True, "--fundamental/--no-fundamental", help="包含基本面因子"
-    ),
+    include_fundamental: bool = typer.Option(True, "--fundamental/--no-fundamental", help="包含基本面因子"),
     include_macro: bool = typer.Option(True, "--macro/--no-macro", help="包含宏观因子"),
-    include_sentiment: bool = typer.Option(
-        False, "--sentiment/--no-sentiment", help="包含新闻情绪因子"
-    ),
+    include_sentiment: bool = typer.Option(False, "--sentiment/--no-sentiment", help="包含新闻情绪因子"),
     corr_threshold: float = typer.Option(
         0.95,
         "--corr-threshold",
         help="高相关性特征剔除阈值",
     ),
-    profile: str = typer.Option("balanced", "--profile", help="策略 profile（aggressive/balanced/conservative/growth/value）"),
+    profile: str = typer.Option(
+        "balanced", "--profile", help="策略 profile（aggressive/balanced/conservative/growth/value）"
+    ),
     all_profiles: bool = typer.Option(False, "--all-profiles", help="依次运行所有策略 profile"),
 ):
     """运行一次模拟交易循环。"""

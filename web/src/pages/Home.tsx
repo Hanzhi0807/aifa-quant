@@ -70,15 +70,18 @@ export default function Home() {
 
   const currentStrategy = strategies?.find((s) => s.id === profile);
   const pickItems: PickItemView[] =
-    picks?.picks.map((p) => ({
-      symbol: p.symbol,
-      name: p.name,
-      rank: p.rank,
-      close: p.close,
-      weight: p.weight,
-      action: "持有" as const,
-      pnlPct: p.pnlPct,
-    })) || [];
+    picks?.picks
+      .map((p) => ({
+        symbol: p.symbol,
+        name: p.name,
+        rank: p.rank,
+        close: p.close,
+        weight: p.weight,
+        action: "持有" as const,
+        pnlPct: p.pnlPct,
+      }))
+      .sort((a, b) => (b.weight || 0) - (a.weight || 0))
+      .map((p, idx) => ({ ...p, rank: idx + 1 })) || [];
 
   // Compute portfolio & benchmark returns from equity data
   const firstEq = equity?.[0];

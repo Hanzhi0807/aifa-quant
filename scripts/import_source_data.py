@@ -58,9 +58,7 @@ def import_source_data(path: str | Path) -> dict[str, int]:
         results["fundamental_data"] = _import_csv_gz(
             store, path / "aifa_quant_fundamental_data_2023_2024.csv.gz", "fundamental_data"
         )
-        results["macro_data"] = _import_csv_gz(
-            store, path / "aifa_quant_macro_data_2023_2024.csv.gz", "macro_data"
-        )
+        results["macro_data"] = _import_csv_gz(store, path / "aifa_quant_macro_data_2023_2024.csv.gz", "macro_data")
     else:
         # Single file import: infer table from filename.
         name = path.stem.replace(".csv", "")

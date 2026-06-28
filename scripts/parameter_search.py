@@ -35,8 +35,17 @@ def run_single_backtest(
     """Run one backtest configuration and return key metrics."""
     df = features.copy()
     excluded = {
-        "symbol", "name", "trade_date", "open", "high", "low",
-        "close", "volume", "amount", "label_return", "label_binary",
+        "symbol",
+        "name",
+        "trade_date",
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+        "amount",
+        "label_return",
+        "label_binary",
     }
     feature_cols = [c for c in df.columns if c not in excluded]
 

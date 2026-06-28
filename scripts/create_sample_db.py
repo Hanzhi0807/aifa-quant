@@ -21,9 +21,7 @@ def create_sample_db(sample_symbols: list[str], dst_path: str | Path) -> None:
         dst.unlink()
 
     src_con = duckdb.connect(str(src), read_only=True)
-    schema = src_con.execute(
-        "SELECT sql FROM sqlite_master WHERE type='table' AND name='daily_quotes'"
-    ).fetchone()
+    schema = src_con.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='daily_quotes'").fetchone()
     if schema is None:
         raise RuntimeError("daily_quotes table not found in source DB")
 

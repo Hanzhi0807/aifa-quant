@@ -109,7 +109,9 @@ class PaperTradingEngine:
 
         # Risk module instances with profile-specific params
         self.atr_stop_mgr = ATRStopManager(**self.risk_config) if self.risk_config else ATRStopManager()
-        self.position_sizer = VolatilityPositionSizer(**self.vol_config) if self.vol_config else VolatilityPositionSizer()
+        self.position_sizer = (
+            VolatilityPositionSizer(**self.vol_config) if self.vol_config else VolatilityPositionSizer()
+        )
 
     def run(
         self,
@@ -190,9 +192,7 @@ class PaperTradingEngine:
 
         day_quotes = quotes[quotes["trade_date"] == trade_date]
         prev_quotes = quotes[quotes["trade_date"] < trade_date]
-        prev_close_map = (
-            prev_quotes.groupby("symbol")["close"].last().to_dict() if not prev_quotes.empty else {}
-        )
+        prev_close_map = prev_quotes.groupby("symbol")["close"].last().to_dict() if not prev_quotes.empty else {}
 
         broker.set_quotes(trade_date, day_quotes, prev_close_map)
 
@@ -297,10 +297,15 @@ class PaperTradingEngine:
         # Sell positions not in target
         for sym, shares in list(current_positions.items()):
             if sym not in set(selected_symbols):
-                orders.append({
-                    "symbol": sym, "side": "sell", "quantity": shares,
-                    "order_type": "market", "price": None,
-                })
+                orders.append(
+                    {
+                        "symbol": sym,
+                        "side": "sell",
+                        "quantity": shares,
+                        "order_type": "market",
+                        "price": None,
+                    }
+                )
 
         if not selected_symbols:
             return orders
@@ -332,15 +337,25 @@ class PaperTradingEngine:
             target = target_shares.get(sym, 0)
             current = current_positions.get(sym, 0)
             if target > current:
-                orders.append({
-                    "symbol": sym, "side": "buy", "quantity": target - current,
-                    "order_type": "market", "price": None,
-                })
+                orders.append(
+                    {
+                        "symbol": sym,
+                        "side": "buy",
+                        "quantity": target - current,
+                        "order_type": "market",
+                        "price": None,
+                    }
+                )
             elif target < current:
-                orders.append({
-                    "symbol": sym, "side": "sell", "quantity": current - target,
-                    "order_type": "market", "price": None,
-                })
+                orders.append(
+                    {
+                        "symbol": sym,
+                        "side": "sell",
+                        "quantity": current - target,
+                        "order_type": "market",
+                        "price": None,
+                    }
+                )
 
         return orders
 
@@ -384,13 +399,15 @@ class PaperTradingEngine:
             shares = broker.query_positions().get(sig.symbol, 0)
             if shares <= 0:
                 continue
-            orders.append({
-                "symbol": sig.symbol,
-                "side": "sell",
-                "quantity": shares,
-                "order_type": "market",
-                "price": None,
-            })
+            orders.append(
+                {
+                    "symbol": sig.symbol,
+                    "side": "sell",
+                    "quantity": shares,
+                    "order_type": "market",
+                    "price": None,
+                }
+            )
         return orders
 
     def reset(self, cash: float | None = None) -> None:

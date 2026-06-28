@@ -9,15 +9,15 @@ import pandas as pd
 class StrategyProfile:
     """Configuration for one strategy variant."""
 
-    id: str                        # e.g. "aggressive"
-    name: str                      # e.g. "激进型"
-    description: str               # one-line summary
-    top_k: int                     # number of stocks to hold
-    atr_stop_loss: float           # stop-loss multiplier (× ATR)
-    atr_take_profit: float         # take-profit multiplier (× ATR)
-    atr_crash: float               # single-day crash stop (× ATR)
-    atr_drawdown: float            # profit drawdown stop (× ATR)
-    target_risk_pct: float         # per-position risk budget
+    id: str  # e.g. "aggressive"
+    name: str  # e.g. "激进型"
+    description: str  # one-line summary
+    top_k: int  # number of stocks to hold
+    atr_stop_loss: float  # stop-loss multiplier (× ATR)
+    atr_take_profit: float  # take-profit multiplier (× ATR)
+    atr_crash: float  # single-day crash stop (× ATR)
+    atr_drawdown: float  # profit drawdown stop (× ATR)
+    target_risk_pct: float  # per-position risk budget
     # Factor emphasis: groups of feature column prefixes to up-weight
     factor_weights: dict[str, float] = field(default_factory=dict)
 
@@ -72,7 +72,9 @@ PROFILES: dict[str, StrategyProfile] = {
         atr_drawdown=1.0,
         target_risk_pct=0.012,
         factor_weights={
-            "pe": 1.5, "pb": 1.5, "roe": 1.5,
+            "pe": 1.5,
+            "pb": 1.5,
+            "roe": 1.5,
             "volatility": -0.5,  # penalize high volatility
             "beta": -0.5,
         },
@@ -106,7 +108,9 @@ PROFILES: dict[str, StrategyProfile] = {
         atr_drawdown=1.2,
         target_risk_pct=0.015,
         factor_weights={
-            "pe": 2.0, "pb": 2.0, "ps": 1.5,
+            "pe": 2.0,
+            "pb": 2.0,
+            "ps": 1.5,
             "dividend": 2.0,
             "roe": 1.3,
             "momentum": -0.5,  # value stocks may not have momentum
@@ -167,7 +171,5 @@ def apply_profile_score(
     else:
         df["factor_score"] = 0.0
 
-    df["pred_score"] = (
-        model_weight * df["model_score"] + factor_weight * df["factor_score"]
-    )
+    df["pred_score"] = model_weight * df["model_score"] + factor_weight * df["factor_score"]
     return df

@@ -17,9 +17,7 @@ def main():
 
     conn = duckdb.connect(str(store.db_path))
     try:
-        existing = set(
-            conn.execute("SELECT DISTINCT symbol FROM daily_quotes").fetchdf()["symbol"].tolist()
-        )
+        existing = set(conn.execute("SELECT DISTINCT symbol FROM daily_quotes").fetchdf()["symbol"].tolist())
     except Exception:
         existing = set()
     conn.close()

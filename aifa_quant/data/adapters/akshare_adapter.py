@@ -35,9 +35,7 @@ class AkShareAdapter(BaseDataSource):
 
             self._ak = ak
         except ImportError as e:
-            raise RuntimeError(
-                "AkShare is not installed. Run: pip install akshare"
-            ) from e
+            raise RuntimeError("AkShare is not installed. Run: pip install akshare") from e
 
     # ------------------------------------------------------------------
     # Helpers

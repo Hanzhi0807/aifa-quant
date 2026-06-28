@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-06-26
+
+### Added
+- 首页展示改造：策略选择器 + 独立持仓 + 历史表现 + FAQ，可切换 5 个 profile。
+- 历史表现叠加基准：权益曲线中加入沪深 300、上证指数归一化曲线及收益统计。
+- 选股池扩展：沪深 300 + 中证 500 + 中证 1000，合计约 1800 只 A股；日线默认从 2025-01-01 起。
+- 策略差异化：`apply_profile_score()` 按 profile 的 `factor_weights` 加权特征前缀，使不同策略选出不同股票。
+- 新增 5 个投资者偏好 profile：`aggressive` / `balanced` / `conservative` / `growth` / `value`。
+- 新增 `aifa_quant/data/constants.py`，`FeatureBuilder` 排除指数代码，防止指数被选股。
+- 新增 `scripts/update_index_data.py`，每日刷新时同步更新沪深 300 / 上证 / 中证 500 / 中证 1000 指数日线。
+- 新增每日自动刷新脚本 `scripts/daily_refresh.py`，支持 `--force`、`--skip-paper-trade`，并同步写入 `stock_universe` 股票名称。
+
+### Changed
+- 数据工作流改为本地优先：首次部署执行 `scripts/daily_refresh.py --force --skip-paper-trade`，后续每日增量更新；`data_store/` 与 DuckDB 不提交 GitHub。
+- 风控模块修复：ATR 止损/止盈/回撤/暴跌检测需加载 60 天 OHLCV；仓位 sizing 改为 `target_risk / (N × ATR)`。
+- DuckDB 锁优化：Web 查询后正确 `await` 关闭 DuckDB connection 和 database。
+- 移除 rich 输出中的 `¥` 符号，修复 Windows GBK 控制台 UnicodeEncodeError。
+- 模拟交易 `paper-trade run` 支持 `--profile` 与 `--all-profiles`，`paper_nav` / `paper_positions` 按 `profile` 隔离。
+
+### Notes
+- 现有 `lgb_stock_selector` 模型基于沪深 300 训练，股票池扩大后建议用新 universe 重新训练。
+- GitHub Release 数据包不再维护，数据通过本地 AkShare 首次拉取 + 每日增量更新获得。
+
 ## [0.5.1] - 2026-06-26
 
 ### Fixed

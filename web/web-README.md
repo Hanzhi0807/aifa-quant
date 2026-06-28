@@ -1,13 +1,13 @@
 # AifaQuant Web Dashboard
 
-A dark-mode quantitative finance dashboard for the AifaQuant A-share quantitative research framework. Built with React + TypeScript + Tailwind CSS + shadcn/ui frontend and Hono + tRPC + Drizzle ORM + MySQL backend.
+A dark-mode quantitative finance dashboard for the AifaQuant A-share quantitative research framework. Built with React + TypeScript + Tailwind CSS + shadcn/ui frontend and Hono + tRPC backend, reading directly from the local DuckDB.
 
 ## Features
 
-- **Dashboard** — KPI overview, equity curve chart, performance metrics grid, recent backtest runs table, factor importance chart
-- **Backtest** — Backtest history with search/filter, configuration panel (Phase 2 — async execution)
-- **Models** — Model registry table with feature importance visualization
-- **Data** — Database statistics, data summary, quick start guide
+- **Dashboard** — strategy profile selector, per-profile positions, equity curve with CSI300 / SSE benchmarks, performance metrics, FAQ
+- **Backtest** — backtest history with search/filter, configuration panel
+- **Models** — model registry table with feature importance visualization
+- **Data** — database statistics, data summary, quick start guide
 
 ## Tech Stack
 
@@ -15,8 +15,8 @@ A dark-mode quantitative finance dashboard for the AifaQuant A-share quantitativ
 |-------|-----------|
 | Frontend | React 19 + TypeScript + Vite + Tailwind CSS + shadcn/ui + Recharts |
 | Backend | Hono + tRPC 11.x + superjson |
-| Database | MySQL + Drizzle ORM |
-| Auth | None (Phase 1 — public access) |
+| Database | DuckDB (`data_store/aifa_quant.duckdb`) |
+| Auth | None (public access) |
 
 ## Project Structure
 
@@ -25,20 +25,23 @@ A dark-mode quantitative finance dashboard for the AifaQuant A-share quantitativ
 │   ├── routers/              # tRPC routers
 │   │   ├── health.ts         # Health check
 │   │   ├── dbInfo.ts         # Database statistics
+│   │   ├── strategies.ts     # Profile list, positions, equity curve with benchmarks
 │   │   ├── backtest.ts       # Backtest CRUD
-│   │   ├── equityCurve.ts    # Equity curve data
+│   │   ├── equityCurve.ts    # Equity curve data points
 │   │   ├── metrics.ts        # Performance metrics
 │   │   ├── model.ts          # Model registry
-│   │   └── factor.ts         # Factor importance
+│   │   ├── factor.ts         # Factor importance
+│   │   ├── factorStore.ts    # Factor store
+│   │   ├── risk.ts           # Risk overview
+│   │   └── refresh.ts        # Data refresh trigger
 │   ├── middleware.ts         # tRPC middleware
 │   ├── router.ts             # Router registration
 │   ├── context.ts            # Request context
 │   ├── boot.ts               # Server entry
-│   └── queries/connection.ts # Database connection
-├── db/
-│   ├── schema.ts             # Database tables
-│   ├── relations.ts          # Drizzle relations
-│   └── seed.ts               # Seed script
+│   └── queries/              # Database queries
+│       ├── duckdb.ts         # DuckDB read-only query wrapper
+│       └── connection.ts     # Legacy MySQL connection (unused)
+├── db/                       # Legacy Drizzle schema (unused)
 ├── contracts/                # Shared types (frontend/backend)
 ├── src/
 │   ├── pages/                # Route pages (Home/Backtest/Models/Data)
@@ -54,96 +57,56 @@ A dark-mode quantitative finance dashboard for the AifaQuant A-share quantitativ
 └── DEPLOY.md                 # Deployment guide
 ```
 
-## Database Schema
+## Database
 
-### backtest_runs
-| Column | Type | Description |
-|--------|------|-------------|
-| id | serial PK | Auto-increment ID |
-| name | varchar(255) | Backtest name |
-| start_date / end_date | date | Date range |
-| top_k | int | Top-K stock selection |
-| rebalance_freq | int | Rebalance frequency (days) |
-| rolling | boolean | Rolling training flag |
-| benchmark | varchar(50) | Benchmark index (CSI300) |
-| metrics | json | Performance metrics JSON |
-| status | varchar(20) | completed/running/failed |
-| created_at | timestamp | Creation time |
+Web 仪表盘直接读取项目根目录下的 DuckDB 文件。默认路径由 `web/api/queries/duckdb.ts` 解析为 `../data_store/aifa_quant.duckdb`。
 
-### equity_curve
-| Column | Type | Description |
-|--------|------|-------------|
-| id | serial PK | Auto-increment ID |
-| backtest_id | bigint FK | Associated backtest |
-| trade_date | date | Trading date |
-| total_value | decimal(18,4) | Portfolio value |
-| normalized_value | decimal(18,6) | Normalized to 1.0 |
-| benchmark_normalized | decimal(18,6) | Benchmark normalized |
+主要查询的表：
 
-### model_registry
-| Column | Type | Description |
-|--------|------|-------------|
-| id | serial PK | Auto-increment ID |
-| name | varchar(255) | Model name |
-| path | varchar(500) | Model file path |
-| feature_columns | json | Feature list |
-| train_start / train_end | date | Training period |
-| created_at | timestamp | Creation time |
-
-### factor_importance
-| Column | Type | Description |
-|--------|------|-------------|
-| id | serial PK | Auto-increment ID |
-| model_id | bigint FK | Associated model |
-| factor_name | varchar(100) | Feature name |
-| importance | decimal(10,6) | Importance score |
-| rank | int | Rank by importance |
+- `daily_quotes` — 日线行情（股票 + 指数）
+- `paper_nav` — 模拟交易净值（按 `profile` 隔离）
+- `paper_positions` — 当前持仓
+- `model_registry` — 模型注册表
 
 ## API Endpoints (tRPC)
 
 | Router | Procedure | Type | Description |
 |--------|-----------|------|-------------|
-| health | check | query | Health check + version |
-| dbInfo | stats | query | Database statistics |
-| backtest | list | query | List backtest runs |
-| backtest | getById | query | Single backtest details |
-| equityCurve | getByBacktestId | query | Equity curve data points |
-| metrics | getByBacktestId | query | Performance metrics JSON |
-| model | list | query | List all models |
-| model | getById | query | Single model details |
-| factor | getByModelId | query | Factor importances by model |
+| `health` | `check` | query | Health check + version |
+| `dbInfo` | `stats` | query | Database statistics |
+| `strategies` | `list` | query | List all profiles with latest return |
+| `strategies` | `getPicks` | query | Current picks for a profile |
+| `strategies` | `getEquity` | query | Normalized equity curve + benchmarks |
+| `backtest` | `list` | query | List backtest runs |
+| `backtest` | `getById` | query | Single backtest details |
+| `equityCurve` | `getByBacktestId` | query | Equity curve data points |
+| `metrics` | `getByBacktestId` | query | Performance metrics JSON |
+| `model` | `list` | query | List all models |
+| `model` | `getById` | query | Single model details |
+| `factor` | `getByModelId` | query | Factor importances by model |
 
 ## Available Scripts
 
 | Command | Description |
 |---------|-------------|
 | `npm run dev` | Start dev server (port 3000) |
-| `npm run build` | Build for production |
-| `npm run check` | Type-check TypeScript |
-| `npm run db:push` | Sync schema to database |
-| `npm run db:generate` | Generate migration SQL |
-| `npm run db:migrate` | Apply pending migrations |
+| `npm run build` | Build frontend + backend bundle |
+| `npm run start` | Start production server |
+| `npm run check` | TypeScript type check |
+| `npm run test` | Run vitest |
+| `npm run lint` | Run ESLint |
+| `npm run format` | Run Prettier |
 
-## Mock Data
+## Quick Start
 
-All API routers include mock data fallbacks — if the database is unavailable, realistic simulated data is returned so the dashboard always displays correctly. This enables:
-- Frontend development without database setup
-- Static deployment previews
-- Graceful degradation in production
+```bash
+cd web
+npm install
+npm run dev
+```
 
-## Environment Variables
+Then open `http://localhost:3000`.
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `DATABASE_URL` | Yes | MySQL connection string |
-| `APP_ID` | Yes | Application ID |
-| `APP_SECRET` | Yes | Application secret |
+> 确保项目根目录已有 `data_store/aifa_quant.duckdb`。如果没有，运行 `python scripts/daily_refresh.py --force --skip-paper-trade`。
 
-## Phase 2 Roadmap
-
-- [ ] Async backtest execution via task queue
-- [ ] WebSocket/SSE for real-time progress
-- [ ] Phase 2 form validation with Zod
-- [ ] User authentication (OAuth 2.0)
-- [ ] SHAP value visualization
-- [ ] Real-time data feed integration
+See [`DEPLOY.md`](DEPLOY.md) for production deployment options.

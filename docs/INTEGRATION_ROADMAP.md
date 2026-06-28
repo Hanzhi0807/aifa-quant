@@ -1,6 +1,7 @@
 # 外部能力接入路线图
 
 > 说明 AifaQuant 如何以“核心层稳定 + 插件化拼装”的方式，吸收其他量化项目、工具库和数据源的长处。
+> 2026-06-26 更新：刷新各接入项的当前状态。
 
 ---
 
@@ -35,13 +36,13 @@
 
 ### 2.1 数据源（Data Sources）
 
-| 来源 | 长处 | 接入方式 | 优先级 | 难度 |
-|---|---|---|---|---|
-| **AkShare** | 免费 A 股/基金/宏观数据，接口丰富 | 新增 `AkShareAdapter`，实现 `get_daily_data`、`get_index_data` | 高 | 低 |
-| **Tushare** | 高质量财务数据、分钟线、龙虎榜 | 新增 `TushareAdapter`，复用现有存储 schema | 高 | 低 |
-| **Baostock** | 免费复权数据、季频财务数据 | 新增 `BaostockAdapter` | 中 | 低 |
-| **JoinQuant / RiceQuant** | 更长历史、已清洗因子 | 通过 API 或导出 CSV 导入 DuckDB | 中 | 中 |
-| **AbuQuant 数据模块** | 已有数据解析逻辑 | 抽取 Abu 中数据清洗/标准化逻辑，作为可选适配器 | 低 | 中 |
+| 来源 | 长处 | 接入方式 | 状态 | 优先级 | 难度 |
+|---|---|---|---|---|---|
+| **AkShare** | 免费 A 股/基金/宏观数据，接口丰富 | `data/adapters/akshare_adapter.py` | ✅ 已接入 | 高 | 低 |
+| **Tushare** | 高质量财务数据、分钟线、龙虎榜 | `data/adapters/tushare_adapter.py` | ✅ 已接入 | 高 | 低 |
+| **Baostock** | 免费复权数据、季频财务数据 | 新增 `BaostockAdapter` | ⏳ 待接入 | 中 | 低 |
+| **JoinQuant / RiceQuant** | 更长历史、已清洗因子 | 通过 API 或导出 CSV 导入 DuckDB | ⏳ 待接入 | 中 | 中 |
+| **AbuQuant 数据模块** | 已有数据解析逻辑 | 抽取 Abu 中数据清洗/标准化逻辑 | ⏳ 待接入 | 低 | 中 |
 
 **接口要求**：所有数据源适配器必须实现以下方法：
 
@@ -60,14 +61,15 @@ class BaseDataSource(ABC):
 
 ### 2.2 因子工程（Factor Engineering）
 
-| 来源 | 长处 | 接入方式 | 优先级 | 难度 |
-|---|---|---|---|---|
-| **Qlib Alpha158 / Alpha360** | 经典因子库，已被验证 | 新增 `qlib_factors.py`，生成后写入 DuckDB `features` 表 | 高 | 中 |
-| **pandas-ta / ta-lib** | 大量技术指标 | 扩展 `features/technical.py` 或新增 `features/ta_lib.py` | 高 | 低 |
-| **Alphalens** | 因子分析（IC、分位数收益、换手率） | 新增 `analysis/factor_analysis.py`，调用 Alphalens API | 高 | 中 |
-| **AbuQuant 因子模块** | 已有特征组合经验 | 抽取 Abu 的卖出/UMP 特征思路，作为可选因子 | 中 | 中 |
+| 来源 | 长处 | 接入方式 | 状态 | 优先级 | 难度 |
+|---|---|---|---|---|---|
+| **Qlib Alpha158 / Alpha360** | 经典因子库，已被验证 | 新增 `qlib_factors.py`，生成后写入 DuckDB `features` 表 | ⏳ 待接入 | 高 | 中 |
+| **pandas-ta / ta-lib** | 大量技术指标 | 扩展 `features/technical.py` 或新增 `features/ta_lib.py` | ⚠️ 部分覆盖 | 高 | 低 |
+| **Alphalens** | 因子分析（IC、分位数收益、换手率） | `analysis/factor_analysis.py` 已自研 IC/RankIC/分层/衰减 | ⚠️ 部分覆盖 | 高 | 中 |
+| **AbuQuant 因子模块** | 已有特征组合经验 | 抽取 Abu 的卖出/UMP 特征思路 | ⏳ 待接入 | 中 | 中 |
 
 **设计建议**：
+
 - 每个外部因子集封装成一个函数，输入 `daily_df`，输出带新列的 DataFrame。
 - 通过 `FeatureBuilder` 注册机制按需调用：
 
@@ -83,12 +85,14 @@ feature_modules = {
 
 ### 2.3 模型（Models）
 
-| 来源 | 长处 | 接入方式 | 优先级 | 难度 |
-|---|---|---|---|---|
-| **Qlib 模型 Zoo** | GBDT、TabNet、Transformer、ALSTM | 实现 `QlibModelAdapter` 继承 `BaseModel` | 中 | 中 |
-| **mlfinlab / AFML** | 金融机器学习最佳实践 | 引入样本权重、Purged K-Fold、元标签（meta-labeling） | 中 | 高 |
-| **scikit-learn** | 逻辑回归、随机森林、SVM | 新增 `SklearnModelWrapper` | 低 | 低 |
-| **XGBoost** | 与 LightGBM 互补 | 新增 `XGBRankerModel` | 低 | 低 |
+| 来源 | 长处 | 接入方式 | 状态 | 优先级 | 难度 |
+|---|---|---|---|---|---|
+| **LightGBM** | 默认 GBDT 选股模型 | `models/lgb_ranker.py` / `models/lgb_lambdarank.py` | ✅ 已接入 | 高 | 低 |
+| **XGBoost** | 与 LightGBM 互补 | `models/xgb_ranker.py` | ✅ 已接入 | 中 | 低 |
+| **Ensemble** | 多模型集成 | `models/ensemble.py` | ✅ 已接入 | 中 | 低 |
+| **Qlib 模型 Zoo** | GBDT、TabNet、Transformer、ALSTM | 实现 `QlibModelAdapter` 继承 `BaseModel` | ⏳ 待接入 | 中 | 中 |
+| **mlfinlab / AFML** | 金融机器学习最佳实践 | 引入样本权重、Purged K-Fold、元标签 | ⏳ 待接入 | 中 | 高 |
+| **scikit-learn** | 逻辑回归、随机森林、SVM | 新增 `SklearnModelWrapper` | ⏳ 待接入 | 低 | 低 |
 
 **模型接口**：
 
@@ -108,11 +112,12 @@ class BaseModel(ABC):
 
 ### 2.4 回测引擎（Backtest）
 
-| 来源 | 长处 | 接入方式 | 优先级 | 难度 |
-|---|---|---|---|---|
-| **Backtrader** | 成熟事件驱动引擎，支持多品种/期货/期权 | 新增 `BacktraderAdapter`，把 AifaQuant 的策略包装成 Backtrader Strategy | 中 | 中 |
-| **Zipline** | pipeline 式量化研究 | 作为可选回测引擎，复用数据层 | 低 | 高 |
-| **AbuQuant 回测模块** | A 股规则已有部分实现 | 对比 Abu 的卖出/风控逻辑，反哺 `backtest/engine.py` | 低 | 中 |
+| 来源 | 长处 | 接入方式 | 状态 | 优先级 | 难度 |
+|---|---|---|---|---|---|
+| **AifaQuant 自研引擎** | A股规则、事件驱动 | `backtest/engine.py` | ✅ 已接入 | 高 | 中 |
+| **Backtrader** | 成熟事件驱动引擎，支持多品种/期货/期权 | 新增 `BacktraderAdapter` | ⏳ 待接入 | 中 | 中 |
+| **Zipline** | pipeline 式量化研究 | 作为可选回测引擎，复用数据层 | ⏳ 待接入 | 低 | 高 |
+| **AbuQuant 回测模块** | A 股规则已有部分实现 | 对比 Abu 的卖出/风控逻辑 | ⏳ 待接入 | 低 | 中 |
 
 **注意**：AifaQuant 自研 A 股回测引擎仍是默认，Backtrader 仅作为复杂场景的可选扩展。
 
@@ -120,22 +125,22 @@ class BaseModel(ABC):
 
 ### 2.5 绩效分析（Analytics）
 
-| 来源 | 长处 | 接入方式 | 优先级 | 难度 |
-|---|---|---|---|---|
-| **Pyfolio / Empyrical** | 专业收益/风险指标、回撤分析 | 新增 `analytics/pyfolio_reporter.py`，把权益曲线转成 Pyfolio 格式 | 中 | 中 |
-| **Alphalens** | 因子层面的绩效归因 | 新增 `analytics/factor_tearsheet.py` | 中 | 中 |
-| **matplotlib / plotly** | 可视化 | 扩展 `reports/` 目录，输出 HTML/PDF 报告 | 高 | 低 |
+| 来源 | 长处 | 接入方式 | 状态 | 优先级 | 难度 |
+|---|---|---|---|---|---|
+| **Pyfolio / Empyrical** | 专业收益/风险指标、回撤分析 | 新增 `analytics/pyfolio_reporter.py` | ⏳ 待接入 | 中 | 中 |
+| **Alphalens** | 因子层面的绩效归因 | `analysis/factor_analysis.py` 已覆盖核心指标 | ⚠️ 部分覆盖 | 中 | 中 |
+| **matplotlib / plotly** | 可视化 | 扩展 `reports/` 目录，输出 HTML/PDF 报告 | ⚠️ 部分覆盖 | 高 | 低 |
 
 ---
 
 ### 2.6 实盘/模拟交易（Execution）
 
-| 来源 | 长处 | 接入方式 | 优先级 | 难度 |
-|---|---|---|---|---|
-| **SimulatedBroker（内置）** | 离线验证策略，不消耗额度 | 已实现，见 `execution/broker/simulated_broker.py` + `paper_trading/engine.py` | ✅ 已完成 | - |
-| **QMT** | 国内主流量化交易终端 | 新增 `execution/qmt_broker.py` 实现 `BaseBroker` | 高 | 中 |
-| **easytrader** | 券商客户端自动化 | 新增 `execution/easytrader_broker.py` | 中 | 中 |
-| **Ptrade** | 恒生量化平台 | 新增 `execution/ptrade_broker.py` | 低 | 高 |
+| 来源 | 长处 | 接入方式 | 状态 | 优先级 | 难度 |
+|---|---|---|---|---|---|
+| **SimulatedBroker（内置）** | 离线验证策略，不消耗额度 | `execution/broker/simulated_broker.py` + `paper_trading/engine.py` | ✅ 已完成 | 高 | 低 |
+| **QMT** | 国内主流量化交易终端 | 新增 `execution/qmt_broker.py` 实现 `BaseBroker` | ⏳ 待接入 | 高 | 中 |
+| **easytrader** | 券商客户端自动化 | 新增 `execution/easytrader_broker.py` | ⏳ 待接入 | 中 | 中 |
+| **Ptrade** | 恒生量化平台 | 新增 `execution/ptrade_broker.py` | ⏳ 待接入 | 低 | 高 |
 
 **执行接口**：
 
@@ -155,11 +160,11 @@ class BaseBroker(ABC):
 
 ### 2.7 参数优化与自动化
 
-| 来源 | 长处 | 接入方式 | 优先级 | 难度 |
-|---|---|---|---|---|
-| **Optuna** | 贝叶斯超参优化 | 新增 `optimization/optuna_search.py`，优化 top_k/freq/模型参数 | 中 | 中 |
-| **Ray Tune** | 分布式超参搜索 | 在大数据集或复杂模型时使用 | 低 | 高 |
-| **Weights & Biases / MLflow** | 实验追踪 | 记录每次回测/训练的参数和指标 | 中 | 低 |
+| 来源 | 长处 | 接入方式 | 状态 | 优先级 | 难度 |
+|---|---|---|---|---|---|
+| **Optuna** | 贝叶斯超参优化 | 新增 `optimization/optuna_search.py` | ⏳ 待接入 | 中 | 中 |
+| **Ray Tune** | 分布式超参搜索 | 在大数据集或复杂模型时使用 | ⏳ 待接入 | 低 | 高 |
+| **Weights & Biases / MLflow** | 实验追踪 | 记录每次回测/训练的参数和指标 | ⏳ 待接入 | 中 | 低 |
 
 ---
 
@@ -196,17 +201,17 @@ aifa_quant/
 
 ## 4. 接入步骤模板
 
-以接入 **AkShare** 为例：
+以接入 **AkShare** 为例（已实际完成）：
 
 1. **新增可选依赖**
    ```toml
    [project.optional-dependencies]
-   akshare = ["akshare>=1.12.0"]
+   akshare = ["akshare>=1.18.0"]
    ```
 
 2. **实现适配器**
    ```python
-   # plugins/datasources/akshare_adapter.py
+   # data/adapters/akshare_adapter.py
    try:
        import akshare as ak
    except ImportError:
@@ -228,8 +233,8 @@ aifa_quant/
    ```
 
 4. **配置切换**
-   ```env
-   DATA_SOURCE=akshare
+   ```bash
+   python -m aifa_quant.cli.main data-update --source akshare ...
    ```
 
 5. **添加测试**
@@ -243,19 +248,19 @@ aifa_quant/
 ## 5. 优先级排序（建议执行顺序）
 
 ### 第一阶段：夯实数据与因子
-1. AkShare / Tushare 数据源适配
-2. pandas-ta / ta-lib 技术指标扩展
-3. Alphalens 因子分析
+1. AkShare / Tushare 数据源适配（✅ 已完成）
+2. pandas-ta / ta-lib 技术指标扩展（⚠️ 部分完成）
+3. Alphalens 因子分析（⚠️ 核心指标已自研实现）
 
 ### 第二阶段：模型与回测
-4. XGBoost / sklearn 模型适配
-5. Backtrader 回测引擎适配
-6. mlfinlab 样本权重与 Purged CV
+4. XGBoost / sklearn 模型适配（✅ XGBoost 已完成）
+5. Backtrader 回测引擎适配（⏳ 待做）
+6. mlfinlab 样本权重与 Purged CV（⏳ 待做）
 
 ### 第三阶段：实盘与优化
-7. QMT / easytrader 执行适配
-8. Optuna 参数优化
-9. W&B / MLflow 实验追踪
+7. QMT / easytrader 执行适配（⏳ 待做）
+8. Optuna 参数优化（⏳ 待做）
+9. W&B / MLflow 实验追踪（⏳ 待做）
 
 ---
 
@@ -265,19 +270,20 @@ aifa_quant/
 - **可选依赖**：核心 `requirements.txt` 保持精简，外部能力通过 `pip install aifa-quant[akshare,qlib]` 安装。
 - **单元测试**：每个插件至少有一个 mock 测试，避免因为外部 API 不稳定导致 CI 失败。
 - **文档同步**：每接入一个外部能力，同步更新 `HANDOFF.md`、本文件和 `CHANGELOG.md`。
+- **数据不提交 Git**：任何新增数据源产生的大型数据文件都应放到 `data_store/` 并加入 `.gitignore`。
 
 ---
 
 ## 7. 状态追踪
 
-| 外部能力 | 状态 | 负责人 | 备注 |
-|---|---|---|---|
-| AkShare 数据源 | ⏳ 待接入 | - | 优先级高 |
-| Tushare 数据源 | ⏳ 待接入 | - | 优先级高 |
-| Qlib Alpha158 | ⏳ 待接入 | - | 优先级高 |
-| Alphalens 因子分析 | ⏳ 待接入 | - | 优先级高 |
-| XGBoost 模型 | ⏳ 待接入 | - | 优先级低 |
-| Backtrader 回测 | ⏳ 待接入 | - | 优先级中 |
-| SimulatedBroker / 模拟交易 | ✅ 已接入 | - | 用于离线验证 |
-| QMT 实盘 | ⏳ 待接入 | - | 优先级高（实盘阶段） |
-| Optuna 优化 | ⏳ 待接入 | - | 优先级中 |
+| 外部能力 | 状态 | 备注 |
+|---|---|---|
+| AkShare 数据源 | ✅ 已接入 | 默认数据源，日线/指数/成分股 |
+| Tushare 数据源 | ✅ 已接入 | 需 `TUSHARE_TOKEN` |
+| Qlib Alpha158 | ⏳ 待接入 | 经典因子库，优先级高 |
+| Alphalens 因子分析 | ⚠️ 部分覆盖 | 自研 `factor_analysis.py` 已覆盖 IC/RankIC/分层/衰减 |
+| XGBoost 模型 | ✅ 已接入 | `models/xgb_ranker.py` |
+| Backtrader 回测 | ⏳ 待接入 | 优先级中 |
+| SimulatedBroker / 模拟交易 | ✅ 已完成 | 用于离线验证 |
+| QMT 实盘 | ⏳ 待接入 | 实盘阶段再做 |
+| Optuna 优化 | ⏳ 待接入 | 优先级中 |

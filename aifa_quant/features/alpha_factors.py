@@ -193,8 +193,10 @@ def alpha050(df: pd.DataFrame) -> pd.Series:
 
 def alpha054(df: pd.DataFrame) -> pd.Series:
     """(-1 * rank(stddev(abs(close - open), 10) + (close - open)) * ts_corr(close, open, 10))"""
-    return -1 * _rank(_ts_std((df["close"] - df["open"]).abs(), 10) + (df["close"] - df["open"])) * _ts_corr(
-        df["close"], df["open"], 10
+    return (
+        -1
+        * _rank(_ts_std((df["close"] - df["open"]).abs(), 10) + (df["close"] - df["open"]))
+        * _ts_corr(df["close"], df["open"], 10)
     )
 
 

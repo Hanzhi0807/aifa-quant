@@ -9,7 +9,6 @@ from pathlib import Path
 project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(project_root))
 
-import pandas as pd
 from aifa_quant.config.settings import Settings
 from aifa_quant.data.adapters import AkShareAdapter
 from aifa_quant.data.storage import DuckDBStore

@@ -116,7 +116,9 @@ class TushareAdapter(BaseDataSource):
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors="coerce")
         df = df.rename(columns={"vol": "volume"})
-        df = df[[c for c in ["symbol", "trade_date", "open", "high", "low", "close", "volume", "amount"] if c in df.columns]]
+        df = df[
+            [c for c in ["symbol", "trade_date", "open", "high", "low", "close", "volume", "amount"] if c in df.columns]
+        ]
         df = df.dropna(subset=["trade_date", "close"])
         if start_date:
             df = df[df["trade_date"] >= pd.to_datetime(start_date)]

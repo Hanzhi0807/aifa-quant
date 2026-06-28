@@ -284,12 +284,15 @@ class DuckDBStore:
     # ------------------------------------------------------------------
     def load_paper_positions(self, profile: str = "balanced") -> pd.DataFrame:
         """Return current paper positions for a profile."""
-        return self.conn.execute("""
+        return self.conn.execute(
+            """
             SELECT symbol, shares, cost_basis, updated_at
             FROM paper_positions
             WHERE shares != 0 AND profile = ?
             ORDER BY symbol
-        """, [profile]).fetchdf()
+        """,
+            [profile],
+        ).fetchdf()
 
     def save_paper_positions(self, df: pd.DataFrame, profile: str = "balanced") -> int:
         """Upsert paper positions for a profile."""
@@ -309,9 +312,12 @@ class DuckDBStore:
         return len(df)
 
     def load_paper_cash(self, profile: str = "balanced") -> float | None:
-        result = self.conn.execute("""
+        result = self.conn.execute(
+            """
             SELECT cash FROM paper_nav WHERE profile = ? ORDER BY updated_at DESC LIMIT 1
-        """, [profile]).fetchone()
+        """,
+            [profile],
+        ).fetchone()
         return result[0] if result else None
 
     def save_paper_nav(self, df: pd.DataFrame, profile: str = "balanced") -> int:

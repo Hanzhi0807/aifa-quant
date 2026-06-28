@@ -6,11 +6,10 @@ import pandas as pd
 
 from ..core.trading_config import TradingConfig
 from ..models.base import BaseModel
-
+from ..strategy.base import BaseStrategy
 
 # Model may be omitted when pred_score is already provided by rolling trainer.
 ModelType = BaseModel | None
-from ..strategy.base import BaseStrategy
 
 
 @dataclass
@@ -154,10 +153,7 @@ class BacktestEngine:
                 self._sell_all(date, day_quotes, sym)
 
         # Determine targets that have price data today
-        available_targets = [
-            sym for sym in target_symbols
-            if sym in day_quotes["symbol"].values
-        ]
+        available_targets = [sym for sym in target_symbols if sym in day_quotes["symbol"].values]
         if not available_targets:
             return
 
