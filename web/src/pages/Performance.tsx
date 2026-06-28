@@ -12,11 +12,10 @@ import BacktestTable from "@/components/dashboard/BacktestTable";
 import FactorChart from "@/components/dashboard/FactorChart";
 
 export default function Performance() {
-  const { data: metrics } = trpc.metrics.getByBacktestId.useQuery({
-    backtestId: 1,
-  });
+  const { data: metrics, isLoading } = trpc.metrics.latest.useQuery();
 
   const m = metrics || {};
+  const hasData = Object.keys(m).length > 0;
 
   return (
     <div className="min-h-screen pt-[90px] pb-12 px-6">
@@ -24,9 +23,18 @@ export default function Performance() {
         <div className="animate-fade-in">
           <h1 className="text-2xl font-bold text-white mb-1">策略原理与绩效</h1>
           <p className="text-sm text-[var(--text-secondary)]">
-            回测结果、净值曲线、因子有效性等技术细节
+            回测结果、净值曲线、因子重要性等技术细节
           </p>
         </div>
+
+        {!hasData && !isLoading && (
+          <div className="glass-card rounded-2xl p-6 text-center">
+            <p className="text-sm text-[var(--text-muted)] mb-2">暂无回测数据</p>
+            <code className="text-xs text-[var(--cyan)] font-mono bg-black/30 px-3 py-2 rounded-lg">
+              python -m aifa_quant.cli.main backtest --start 20250101 --end &lt;今天日期&gt; --rolling --benchmark 000300.SH --top-k 5 --freq 5 --no-sentiment --cache-only
+            </code>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <KPICard

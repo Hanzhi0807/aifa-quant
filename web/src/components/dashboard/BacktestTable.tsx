@@ -37,7 +37,7 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 export default function BacktestTable() {
-  const { data: backtests, isLoading } = trpc.backtest.list.useQuery({});
+  const { data: backtests, isLoading } = trpc.backtest.list.useQuery();
 
   const runs = (backtests || []) as BacktestRun[];
 

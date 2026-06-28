@@ -16,12 +16,60 @@ interface EquityPoint {
   sseNormalized?: number;
 }
 
-const PROFILE_LABELS: Record<string, { name: string; desc: string; topK: number }> = {
-  aggressive:  { name: "激进型", desc: "高集中度，追求高收益", topK: 5 },
-  balanced:    { name: "均衡型", desc: "攻守兼备，适合大多数人", topK: 8 },
-  conservative:{ name: "稳健型", desc: "分散持仓，严格控制回撤", topK: 12 },
-  growth:      { name: "成长型", desc: "聚焦高成长潜力股", topK: 6 },
-  value:       { name: "价值型", desc: "低估值选股，安全边际优先", topK: 8 },
+const PROFILE_LABELS: Record<string, {
+  name: string;
+  desc: string;
+  topK: number;
+  targetRiskPct: number;
+  atrStopLoss: number;
+  atrTakeProfit: number;
+  factorWeights: Record<string, number>;
+}> = {
+  aggressive: {
+    name: "激进型",
+    desc: "高集中度，追求高收益",
+    topK: 5,
+    targetRiskPct: 0.03,
+    atrStopLoss: 1.5,
+    atrTakeProfit: 4.0,
+    factorWeights: { momentum: 1.5, return: 1.5, alpha: 1.3, volume: 1.2 },
+  },
+  balanced: {
+    name: "均衡型",
+    desc: "攻守兼备，适合大多数人",
+    topK: 8,
+    targetRiskPct: 0.02,
+    atrStopLoss: 1.0,
+    atrTakeProfit: 3.0,
+    factorWeights: {},
+  },
+  conservative: {
+    name: "稳健型",
+    desc: "分散持仓，严格控制回撤",
+    topK: 12,
+    targetRiskPct: 0.012,
+    atrStopLoss: 0.75,
+    atrTakeProfit: 2.0,
+    factorWeights: { pe: 1.5, pb: 1.5, roe: 1.5 },
+  },
+  growth: {
+    name: "成长型",
+    desc: "聚焦高成长潜力股",
+    topK: 6,
+    targetRiskPct: 0.025,
+    atrStopLoss: 1.0,
+    atrTakeProfit: 3.0,
+    factorWeights: { roe: 2.0, revenue: 2.0, gross_margin: 1.5, momentum: 1.3 },
+  },
+  value: {
+    name: "价值型",
+    desc: "低估值选股，安全边际优先",
+    topK: 8,
+    targetRiskPct: 0.015,
+    atrStopLoss: 0.75,
+    atrTakeProfit: 2.5,
+    factorWeights: { pe: 2.0, pb: 2.0, ps: 1.5, dividend: 2.0, roe: 1.3 },
+  },
 };
 
 export interface StrategyPick {
@@ -227,5 +275,22 @@ export const strategiesRouter = createRouter({
       });
 
       return points;
+    }),
+
+  getProfile: publicQuery
+    .input(z.object({ profile: z.string().default("balanced") }))
+    .query(async ({ input }) => {
+      const label = PROFILE_LABELS[input.profile];
+      if (!label) return null;
+      return {
+        id: input.profile,
+        name: label.name,
+        description: label.desc,
+        topK: label.topK,
+        targetRiskPct: label.targetRiskPct,
+        atrStopLoss: label.atrStopLoss,
+        atrTakeProfit: label.atrTakeProfit,
+        factorWeights: label.factorWeights,
+      };
     }),
 });

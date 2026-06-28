@@ -11,6 +11,9 @@ import { backtestRunnerRouter } from "./routers/backtestRunner";
 import { refreshRouter } from "./routers/refresh";
 import { riskRouter } from "./routers/risk";
 import { strategiesRouter } from "./routers/strategies";
+import { ordersRouter } from "./routers/orders";
+import { factorAnalysisRouter } from "./routers/factorAnalysis";
+import { shapRouter } from "./routers/shap";
 
 export const appRouter = createRouter({
   ping: publicQuery.query(() => ({ ok: true, ts: Date.now() })),
@@ -26,6 +29,9 @@ export const appRouter = createRouter({
   refresh: refreshRouter,
   risk: riskRouter,
   strategies: strategiesRouter,
+  orders: ordersRouter,
+  factorAnalysis: factorAnalysisRouter,
+  shap: shapRouter,
 });
 
 export type AppRouter = typeof appRouter;

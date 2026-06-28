@@ -1,132 +1,76 @@
 import { z } from "zod";
 import { createRouter, publicQuery } from "../middleware";
-import { getDb } from "../queries/connection";
-import { modelRegistry } from "@db/schema";
-import { eq } from "drizzle-orm";
 import { getDataStorePath } from "../queries/duckdb";
-import { readFile, stat } from "fs/promises";
+import { readdir, readFile } from "fs/promises";
+import { join } from "path";
 
-const mockModels = [
-  {
-    id: 1,
-    name: "LightGBM 滚动 v1",
-    path: "models/lightgbm_rolling_v1.pkl",
-    featureColumns: [
-      "rsi_14", "macd_signal", "pe_ttm", "pb_lf", "roe_ttm",
-      "volatility_20d", "turnover_20d", "momentum_20d", "momentum_60d",
-      "amt_ratio", "close_ratio", "high_low_ratio", "vol_ratio",
-      "industry_momentum", "market_cap",
-    ],
-    trainStart: "2018-01-01",
-    trainEnd: "2022-12-31",
-    createdAt: new Date("2024-01-15T10:00:00"),
-  },
-  {
-    id: 2,
-    name: "XGBoost 滚动 v1",
-    path: "models/xgboost_rolling_v1.pkl",
-    featureColumns: [
-      "rsi_14", "macd_signal", "pe_ttm", "pb_lf", "roe_ttm",
-      "volatility_20d", "turnover_20d", "momentum_20d", "momentum_60d",
-      "amt_ratio", "close_ratio", "high_low_ratio",
-    ],
-    trainStart: "2019-01-01",
-    trainEnd: "2023-06-30",
-    createdAt: new Date("2024-06-20T14:00:00"),
-  },
-  {
-    id: 3,
-    name: "集成 Stacking v1",
-    path: "models/ensemble_stacking_v1.pkl",
-    featureColumns: [
-      "rsi_14", "macd_signal", "pe_ttm", "pb_lf", "roe_ttm",
-      "volatility_20d", "turnover_20d", "momentum_20d", "momentum_60d",
-      "amt_ratio", "close_ratio", "high_low_ratio", "vol_ratio",
-      "industry_momentum", "market_cap", "beta_60d", "alpha_60d",
-    ],
-    trainStart: "2018-01-01",
-    trainEnd: "2023-12-31",
-    createdAt: new Date("2024-03-10T09:00:00"),
-  },
-];
+interface ModelMeta {
+  feature_names?: string[];
+  feature_importance?: Record<string, number>;
+  train_start?: string;
+  train_end?: string;
+  model_type?: string;
+}
 
-interface ModelRow {
+export interface ModelRow {
   id: number;
   name: string;
   path: string;
   featureColumns: string[];
+  featureImportance: Record<string, number>;
   trainStart: string;
   trainEnd: string;
-  createdAt: Date;
+  createdAt: string;
 }
 
-async function readLatestModel(): Promise<ModelRow | null> {
+async function readModelJson(filePath: string): Promise<ModelRow | null> {
   try {
-    const path = getDataStorePath("models/lgb_stock_selector_latest.json");
-    const [content, stats] = await Promise.all([
-      readFile(path, "utf-8"),
-      stat(path),
-    ]);
-    const data = JSON.parse(content) as {
-      feature_names?: string[];
-      train_start?: string;
-      train_end?: string;
-    };
+    const content = await readFile(filePath, "utf-8");
+    const data = JSON.parse(content) as ModelMeta;
+    const pklPath = filePath.replace(/\.json$/, ".pkl");
+    const stat = await import("fs/promises").then((m) => m.stat(filePath));
 
     return {
-      id: 1,
-      name: "lgb_stock_selector",
-      path,
+      id: 0, // assigned later
+      name: data.model_type || filePath.split(/[\\/]/).pop()?.replace(".json", "") || "model",
+      path: pklPath,
       featureColumns: data.feature_names || [],
-      trainStart: data.train_start || "2018-01-01",
-      trainEnd: data.train_end || "2022-12-31",
-      createdAt: stats.mtime,
+      featureImportance: data.feature_importance || {},
+      trainStart: data.train_start || "-",
+      trainEnd: data.train_end || "-",
+      createdAt: stat.mtime.toISOString(),
     };
-  } catch {
+  } catch (err) {
+    console.error("Failed to read model json:", filePath, err);
     return null;
   }
 }
 
+async function listModels(): Promise<ModelRow[]> {
+  const modelsDir = getDataStorePath("models");
+  const rows: ModelRow[] = [];
+  try {
+    const files = await readdir(modelsDir);
+    const jsonFiles = files.filter((f) => f.endsWith(".json")).sort();
+    for (const file of jsonFiles) {
+      const row = await readModelJson(join(modelsDir, file));
+      if (row) rows.push(row);
+    }
+  } catch {
+    // models directory may not exist
+  }
+  return rows.map((r, idx) => ({ ...r, id: idx + 1 }));
+}
+
 export const modelRouter = createRouter({
   list: publicQuery.query(async () => {
-    try {
-      const latest = await readLatestModel();
-      if (latest) return [latest];
-
-      const db = getDb();
-      const models = await db.select().from(modelRegistry);
-      return models.map((m) => ({
-        ...m,
-        featureColumns: m.featureColumns
-          ? JSON.parse(m.featureColumns as string)
-          : [],
-      }));
-    } catch {
-      return mockModels;
-    }
+    return listModels();
   }),
 
   getById: publicQuery
     .input(z.object({ id: z.number() }))
     .query(async ({ input }) => {
-      try {
-        const latest = await readLatestModel();
-        if (latest && latest.id === input.id) return latest;
-
-        const db = getDb();
-        const [model] = await db
-          .select()
-          .from(modelRegistry)
-          .where(eq(modelRegistry.id, input.id));
-        if (!model) return null;
-        return {
-          ...model,
-          featureColumns: model.featureColumns
-            ? JSON.parse(model.featureColumns as string)
-            : [],
-        };
-      } catch {
-        return mockModels.find((m) => m.id === input.id) || null;
-      }
+      const models = await listModels();
+      return models.find((m) => m.id === input.id) || null;
     }),
 });

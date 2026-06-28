@@ -15,7 +15,12 @@ import KPICard from "@/components/dashboard/KPICard";
 export default function Data() {
   const { data: dbInfo } = trpc.dbInfo.stats.useQuery();
   const { data: models } = trpc.model.list.useQuery();
-  const { data: backtests } = trpc.backtest.list.useQuery({});
+  const { data: backtests } = trpc.backtest.list.useQuery();
+
+  const hasRange = dbInfo?.dateRange?.min && dbInfo?.dateRange?.max;
+  const dateRangeText = hasRange
+    ? `${dbInfo!.dateRange.min!.slice(0, 4)}-${dbInfo!.dateRange.max!.slice(0, 4)}`
+    : "-";
 
   return (
     <div className="min-h-screen pt-[90px] pb-12 px-6">
@@ -40,29 +45,25 @@ export default function Data() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <KPICard
             label="总记录数"
-            value={String(dbInfo?.totalRecords?.toLocaleString() || "24,200")}
+            value={dbInfo?.totalRecords?.toLocaleString() ?? "-"}
             icon={Database}
             variant="cyan"
           />
           <KPICard
             label="回测次数"
-            value={String(backtests?.length || 5)}
+            value={backtests?.length?.toString() ?? "-"}
             icon={BarChart3}
             variant="green"
           />
           <KPICard
             label="模型数量"
-            value={String(models?.length || 3)}
+            value={models?.length?.toString() ?? "-"}
             icon={Layers}
             variant="cyan"
           />
           <KPICard
             label="时间区间"
-            value={
-              dbInfo?.dateRange
-                ? `${dbInfo.dateRange.min?.slice(0, 4)}-${dbInfo.dateRange.max?.slice(0, 4)}`
-                : "2023-2024"
-            }
+            value={dateRangeText}
             icon={Calendar}
             variant="green"
           />
@@ -81,7 +82,9 @@ export default function Data() {
                     数据库记录
                   </h4>
                   <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
-                    数据库当前存储 {(backtests?.length || 5)} 次回测的 {dbInfo?.totalRecords?.toLocaleString() || "24,200"} 条权益曲线数据点，覆盖 {dbInfo?.dateRange?.min || "2023-01-03"} 至 {dbInfo?.dateRange?.max || "2024-12-31"}。
+                    当前数据库共 {(dbInfo?.symbols ?? 0).toLocaleString()} 只股票、{" "}
+                    {(dbInfo?.totalRecords ?? 0).toLocaleString()} 条日线行情，时间区间为{" "}
+                    {dbInfo?.dateRange?.min || "-"} 至 {dbInfo?.dateRange?.max || "-"}。
                   </p>
                 </div>
               </div>
@@ -95,7 +98,8 @@ export default function Data() {
                     回测覆盖
                   </h4>
                   <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
-                    已完成 {(backtests?.length || 5)} 次回测，包含 LightGBM、XGBoost 与 Ensemble 等不同模型配置。
+                    已生成 {(backtests?.length || 0).toString()} 次回测报告，保存在{" "}
+                    <code className="text-[var(--cyan)]">data_store/reports/</code>。
                   </p>
                 </div>
               </div>
@@ -109,7 +113,7 @@ export default function Data() {
                     更新频率
                   </h4>
                   <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
-                    每次回测完成后更新数据。最新回测完成于 {new Date().toLocaleDateString()}。
+                    每个工作日收盘后自动运行数据刷新与模拟交易；盘中不调整持仓。
                   </p>
                 </div>
               </div>

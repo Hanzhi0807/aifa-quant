@@ -20,6 +20,12 @@ const dateRanges = [
   { label: "全部", days: 0 },
 ];
 
+interface EquityPoint {
+  tradeDate: string;
+  normalizedValue: number;
+  benchmarkNormalized?: number;
+}
+
 interface TooltipPayloadItem {
   value: number;
   dataKey: string;
@@ -44,10 +50,7 @@ function CustomTooltip({ active, payload, label }: CustomTooltipProps) {
             style={{ backgroundColor: entry.color }}
           />
           <span className="text-xs text-[var(--text-secondary)]">
-            {entry.dataKey === "normalizedValue"
-              ? "组合"
-              : "沪深 300 基准"}
-            :
+            {entry.dataKey === "normalizedValue" ? "组合" : "沪深 300 基准"}:
           </span>
           <span className="text-xs font-semibold text-white">
             {(entry.value * 100).toFixed(2)}%
@@ -61,8 +64,7 @@ function CustomTooltip({ active, payload, label }: CustomTooltipProps) {
 export default function EquityCurveChart() {
   const [range, setRange] = useState("ALL");
 
-  const { data: equityData, isLoading } =
-    trpc.equityCurve.getByBacktestId.useQuery({});
+  const { data: equityData, isLoading } = trpc.equityCurve.latest.useQuery();
 
   const filteredData = useMemo(() => {
     if (!equityData) return [];
@@ -74,6 +76,10 @@ export default function EquityCurveChart() {
     return equityData.filter((d) => new Date(d.tradeDate) >= cutoff);
   }, [equityData, range]);
 
+  const hasBenchmark = useMemo(() => {
+    return filteredData.some((d) => d.benchmarkNormalized != null);
+  }, [filteredData]);
+
   const formatDate = (dateStr: string) => {
     const d = new Date(dateStr);
     return `${d.getMonth() + 1}/${d.getFullYear().toString().slice(2)}`;
@@ -82,7 +88,7 @@ export default function EquityCurveChart() {
   return (
     <GlassCard
       title="权益曲线"
-      subtitle="组合净值 vs 沪深 300 基准"
+      subtitle={hasBenchmark ? "组合净值 vs 沪深 300 基准" : "组合净值"}
       action={
         <div className="flex gap-1">
           {dateRanges.map((r) => (
@@ -103,10 +109,14 @@ export default function EquityCurveChart() {
         <div className="h-[320px] flex items-center justify-center">
           <div className="w-8 h-8 border-2 border-[var(--cyan)] border-t-transparent rounded-full animate-spin" />
         </div>
+      ) : filteredData.length === 0 ? (
+        <div className="h-[320px] flex items-center justify-center text-sm text-[var(--text-muted)]">
+          暂无权益曲线数据
+        </div>
       ) : (
         <ResponsiveContainer width="100%" height={320}>
           <AreaChart
-            data={filteredData}
+            data={filteredData as EquityPoint[]}
             margin={{ top: 5, right: 5, left: 5, bottom: 5 }}
           >
             <defs>
@@ -142,9 +152,7 @@ export default function EquityCurveChart() {
               wrapperStyle={{ paddingTop: "16px" }}
               formatter={(value: string) => (
                 <span style={{ color: "rgba(255,255,255,0.6)", fontSize: "12px" }}>
-                  {value === "normalizedValue"
-                    ? "组合"
-                    : "沪深 300 基准"}
+                  {value === "normalizedValue" ? "组合" : "沪深 300 基准"}
                 </span>
               )}
             />
@@ -157,16 +165,18 @@ export default function EquityCurveChart() {
               dot={false}
               activeDot={{ r: 4, fill: "#00e5a0", stroke: "#fff", strokeWidth: 2 }}
             />
-            <Area
-              type="monotone"
-              dataKey="benchmarkNormalized"
-              stroke="#00d4ff"
-              strokeWidth={2}
-              strokeDasharray="5 5"
-              fill="url(#benchmarkGrad)"
-              dot={false}
-              activeDot={{ r: 4, fill: "#00d4ff", stroke: "#fff", strokeWidth: 2 }}
-            />
+            {hasBenchmark && (
+              <Area
+                type="monotone"
+                dataKey="benchmarkNormalized"
+                stroke="#00d4ff"
+                strokeWidth={2}
+                strokeDasharray="5 5"
+                fill="url(#benchmarkGrad)"
+                dot={false}
+                activeDot={{ r: 4, fill: "#00d4ff", stroke: "#fff", strokeWidth: 2 }}
+              />
+            )}
           </AreaChart>
         </ResponsiveContainer>
       )}

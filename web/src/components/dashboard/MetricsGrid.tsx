@@ -33,8 +33,7 @@ function formatValue(value: number, format: string): string {
 }
 
 export default function MetricsGrid() {
-  const { data: metrics, isLoading } =
-    trpc.metrics.getByBacktestId.useQuery({ backtestId: 1 });
+  const { data: metrics, isLoading } = trpc.metrics.latest.useQuery();
 
   if (isLoading) {
     return (

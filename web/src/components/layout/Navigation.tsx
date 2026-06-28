@@ -3,6 +3,7 @@ import { Github, Activity } from "lucide-react";
 
 const navItems = [
   { label: "首页", path: "/" },
+  { label: "回测 / 绩效", path: "/backtest" },
   { label: "数据中心", path: "/data" },
 ];
 
