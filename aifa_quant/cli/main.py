@@ -271,21 +271,48 @@ def backtest(
             pred_df = apply_profile_score(pred_df, profile, feature_cols)
         features = pred_df
 
-    # Load raw quotes for execution
+    # Load raw quotes for execution (include CSI300 for regime filter)
     store = DuckDBStore(settings)
     symbols = features["symbol"].unique().tolist()
-    quotes = store.load_daily_quotes(symbols, start_date=start, end_date=end)
+    all_symbols = list(set(symbols + ["000300.SH"]))
+    quotes = store.load_daily_quotes(all_symbols, start_date=start, end_date=end)
+
+    # Load industry map for concentration control
+    industry_map: dict[str, str] | None = None
+    try:
+        universe = store.conn.execute("SELECT symbol, industry FROM stock_universe WHERE industry IS NOT NULL").fetchdf()
+        if not universe.empty:
+            industry_map = dict(zip(universe["symbol"], universe["industry"]))
+    except Exception:
+        pass
+
+    # Determine regime threshold from profile
+    regime_threshold = 0.0
+    max_industry_pct = 0.30
+    if profile:
+        from ..strategy.profiles import get_profile as _get_profile
+        pf = _get_profile(profile)
+        if pf:
+            regime_threshold = pf.regime_ma_threshold
+            max_industry_pct = pf.max_industry_pct
 
     # Select strategy
     if strategy_name == "topk_dropout":
-        strategy = TopKDropoutStrategy(top_k=top_k, rebalance_freq=freq, dropout_threshold=dropout_threshold)
+        strategy = TopKDropoutStrategy(
+            top_k=top_k, rebalance_freq=freq,
+            dropout_threshold=dropout_threshold,
+            max_industry_pct=max_industry_pct,
+        )
     else:
         print(f"[red]未知策略: {strategy_name}[/red]")
         raise typer.Exit(code=1)
 
-    # Run backtest.  Model object is used only as metadata fallback;
-    # pred_score already exists in features.
-    engine = BacktestEngine(initial_cash=initial_cash, rebalance_freq=freq)
+    # Run backtest with regime filter and industry map
+    engine = BacktestEngine(
+        initial_cash=initial_cash, rebalance_freq=freq,
+        regime_ma_threshold=regime_threshold,
+        industry_map=industry_map,
+    )
     equity = engine.run(quotes, features, model, strategy, start_date=start, end_date=end)
 
     if equity.empty:

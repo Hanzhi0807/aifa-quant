@@ -169,13 +169,35 @@ class PaperTradingEngine:
         broker = SimulatedBroker(config=self.config, store=self.store, profile=self.profile_id)
         broker.connect()
 
+        # Load industry map for concentration control
+        industry_map: dict[str, str] | None = None
+        try:
+            universe = self.store.conn.execute(
+                "SELECT symbol, industry FROM stock_universe WHERE industry IS NOT NULL"
+            ).fetchdf()
+            if not universe.empty:
+                industry_map = dict(zip(universe["symbol"], universe["industry"]))
+        except Exception:
+            pass
+
+        # Determine max_industry_pct from profile
+        max_industry_pct = 0.30
+        from ..strategy.profiles import get_profile as _get_profile
+        pf = _get_profile(self.profile_id)
+        if pf:
+            max_industry_pct = pf.max_industry_pct
+
         # Generate signals
-        strategy = TopKDropoutStrategy(top_k=self.top_k, rebalance_freq=self.rebalance_freq)
+        strategy = TopKDropoutStrategy(
+            top_k=self.top_k, rebalance_freq=self.rebalance_freq,
+            max_industry_pct=max_industry_pct,
+        )
         current_positions = broker.query_positions()
         signals = strategy.generate_signals(
             day_features,
             current_date=trade_date,
             hold_symbols=list(current_positions.keys()),
+            industry_map=industry_map,
         )
         selected_symbols = signals[signals["selected"]]["symbol"].tolist()
 

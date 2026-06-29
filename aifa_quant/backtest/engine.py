@@ -41,6 +41,8 @@ class BacktestEngine:
         min_commission: float = 5.0,
         slippage: float = 0.0,
         rebalance_freq: int = 5,
+        regime_ma_threshold: float = 0.0,
+        industry_map: dict[str, str] | None = None,
     ):
         if config is None:
             config = TradingConfig(
@@ -58,6 +60,8 @@ class BacktestEngine:
         self.min_commission = config.min_commission
         self.slippage = config.slippage
         self.rebalance_freq = config.rebalance_freq
+        self.regime_ma_threshold = regime_ma_threshold
+        self.industry_map = industry_map
 
         self.cash: float = self.initial_cash
         self.positions: dict[str, Position] = {}
@@ -67,6 +71,7 @@ class BacktestEngine:
         self.quotes_by_date: dict[pd.Timestamp, pd.DataFrame] = {}
         self.prev_day_quotes: pd.DataFrame | None = None
         self._last_known_price: dict[str, float] = {}
+        self._index_closes: list[float] = []  # for regime detection
 
     def reset(self) -> None:
         self.cash = self.initial_cash
@@ -76,6 +81,7 @@ class BacktestEngine:
         self.quotes_by_date = {}
         self.prev_day_quotes = None
         self._last_known_price = {}
+        self._index_closes = []
 
     def run(
         self,
@@ -108,6 +114,12 @@ class BacktestEngine:
         # Pre-build date index for O(1) lookup instead of filtering the full frame each day.
         self.quotes_by_date = {d: g for d, g in quotes.groupby("trade_date")}
 
+        # Build index close series for regime detection (CSI300)
+        index_quotes = quotes[quotes["symbol"] == "000300.SH"].sort_values("trade_date")
+        index_close_map: dict[pd.Timestamp, float] = {}
+        if not index_quotes.empty:
+            index_close_map = dict(zip(index_quotes["trade_date"], index_quotes["close"]))
+
         # Add prediction scores if not already present (e.g. from rolling trainer)
         if "pred_score" not in features.columns:
             if model is None:
@@ -122,21 +134,31 @@ class BacktestEngine:
             day_quotes = self.quotes_by_date[date]
             day_features = features[features["trade_date"] == date]
 
+            # Track index close for regime filter
+            if date in index_close_map:
+                self._index_closes.append(index_close_map[date])
+
             # Execute the prior trading day's close signal at today's open.
             if pending_targets is not None:
                 self._rebalance(date, day_quotes, pending_targets, price_col="open")
                 pending_targets = None
 
-            # Generate today's signal after today's data is known. It will be
-            # executed on the next trading day, so execution never uses the same
-            # close that created the signal.
+            # Generate today's signal after today's data is known.
             if last_rebalance_idx is None or (i - last_rebalance_idx) >= self.rebalance_freq:
                 if not day_features.empty:
+                    # Market regime check: skip new entries in severe downtrend
+                    if self._is_bear_regime():
+                        last_rebalance_idx = i
+                        self._record_value(date, day_quotes)
+                        self.prev_day_quotes = day_quotes
+                        continue
+
                     hold_symbols = set(self.positions.keys())
                     signals = strategy.generate_signals(
                         day_features,
                         current_date=date,
                         hold_symbols=list(hold_symbols),
+                        industry_map=self.industry_map,
                     )
                     selected = signals[signals["selected"]]["symbol"].tolist()
                     pending_targets = set(selected)
@@ -147,6 +169,14 @@ class BacktestEngine:
             self.prev_day_quotes = day_quotes
 
         return pd.DataFrame(self.daily_values)
+
+    def _is_bear_regime(self) -> bool:
+        """Check if market is in severe downtrend using MA20/MA60 of index."""
+        if self.regime_ma_threshold <= 0 or len(self._index_closes) < 60:
+            return False
+        ma20 = sum(self._index_closes[-20:]) / 20
+        ma60 = sum(self._index_closes[-60:]) / 60
+        return (ma20 / ma60) < self.regime_ma_threshold
 
     def _rebalance(
         self,
