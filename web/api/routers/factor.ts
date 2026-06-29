@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { createRouter, publicQuery } from "../middleware";
+import { createRouter, protectedQuery } from "../middleware";
 import { getDataStorePath } from "../queries/duckdb";
 import { readdir, readFile } from "fs/promises";
 import { join } from "path";
@@ -42,7 +42,7 @@ async function readFactorImportance(modelId: number): Promise<FactorRow[]> {
 }
 
 export const factorRouter = createRouter({
-  getByModelId: publicQuery
+  getByModelId: protectedQuery
     .input(
       z.object({
         modelId: z.number(),

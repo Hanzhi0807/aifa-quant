@@ -3,7 +3,7 @@ services:
     image: mysql:8.0
     container_name: aifa-quant-mysql
     environment:
-      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD must be set}
       MYSQL_DATABASE: aifa_quant
     ports:
       - "3306:3306"
@@ -21,7 +21,7 @@ services:
       dockerfile: web/Dockerfile
     container_name: aifa-quant-web
     environment:
-      DATABASE_URL: mysql://root:rootpassword@mysql:3306/aifa_quant
+      DATABASE_URL: mysql://root:${MYSQL_ROOT_PASSWORD:?}@mysql:3306/aifa_quant
       NODE_ENV: production
     ports:
       - "3000:3000"

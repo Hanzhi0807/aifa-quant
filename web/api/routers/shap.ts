@@ -1,4 +1,4 @@
-import { createRouter, publicQuery } from "../middleware";
+import { createRouter, protectedQuery } from "../middleware";
 import { getDataStorePath } from "../queries/duckdb";
 import { readdir, readFile } from "fs/promises";
 import { join } from "path";
@@ -51,7 +51,7 @@ async function findLatestShapPlot(): Promise<string | null> {
 }
 
 export const shapRouter = createRouter({
-  summary: publicQuery.query(async () => {
+  summary: protectedQuery.query(async () => {
     const path = await findLatestShapSummary();
     if (!path) return { rows: [], plotUrl: null };
     try {

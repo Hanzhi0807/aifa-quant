@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { createRouter, publicQuery } from "../middleware";
+import { createRouter, protectedQuery } from "../middleware";
 import { isDuckDBAvailable, queryDuckDB } from "../queries/duckdb";
 
 interface OrderRow {
@@ -21,7 +21,7 @@ function formatDate(d: Date | string | undefined): string {
 }
 
 export const ordersRouter = createRouter({
-  list: publicQuery
+  list: protectedQuery
     .input(z.object({ profile: z.string().default("balanced") }))
     .query(async ({ input }) => {
       if (!isDuckDBAvailable()) return [];

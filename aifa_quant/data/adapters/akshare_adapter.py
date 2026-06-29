@@ -4,11 +4,14 @@ AkShare is used as the default data source for daily quotes, index data,
 index components, and best-effort macro fallback data.
 """
 
+import logging
 import re
 import time
 from typing import Any
 
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 from ...config.settings import Settings
 from ...core.interfaces import BaseDataSource
@@ -112,7 +115,11 @@ class AkShareAdapter(BaseDataSource):
         numeric_cols = ["open", "high", "low", "close", "volume", "amount"]
         for col in numeric_cols:
             if col in df.columns:
+                before_nan = df[col].isna().sum()
                 df[col] = pd.to_numeric(df[col], errors="coerce")
+                coerced = df[col].isna().sum() - before_nan
+                if coerced > 0:
+                    logger.warning(f"Coerced {coerced} non-numeric values to NaN in column '{col}' for {symbol}")
 
         keep = ["symbol", "trade_date", "open", "high", "low", "close", "volume", "amount"]
         df = df[[c for c in keep if c in df.columns]].copy()

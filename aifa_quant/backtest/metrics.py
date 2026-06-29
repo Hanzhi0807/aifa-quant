@@ -28,7 +28,10 @@ def compute_metrics(
     # Standard excess-return Sharpe ratio
     excess_returns = returns - risk_free_rate / 252
     volatility = excess_returns.std() * np.sqrt(252)
-    sharpe = excess_returns.mean() / excess_returns.std() * np.sqrt(252) if excess_returns.std() != 0 else 0.0
+    if len(excess_returns) < 30 or excess_returns.std() == 0:
+        sharpe = 0.0
+    else:
+        sharpe = excess_returns.mean() / excess_returns.std() * np.sqrt(252)
 
     # Max drawdown
     cumulative = (1 + returns).cumprod()

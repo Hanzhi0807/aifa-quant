@@ -1,8 +1,11 @@
 """Simulated broker for paper trading and unit tests."""
 
+import logging
 from typing import Any
 
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 from ...core.interfaces import BaseBroker
 from ...core.trading_config import TradingConfig
@@ -192,11 +195,12 @@ class SimulatedBroker(BaseBroker):
         # Limit-up / limit-down checks only when we have a reference close
         prev_close = self._prev_close(symbol)
         if prev_close:
-            if side == "buy" and exec_price >= prev_close * 1.095:
+            limit = self._limit_ratio(symbol)
+            if side == "buy" and exec_price >= prev_close * (1 + limit * 0.95):
                 base_order["status"] = "rejected-limit-up"
                 self.orders.append(base_order)
                 return base_order
-            if side == "sell" and exec_price <= prev_close * 0.905:
+            if side == "sell" and exec_price <= prev_close * (1 - limit * 0.95):
                 base_order["status"] = "rejected-limit-down"
                 self.orders.append(base_order)
                 return base_order
@@ -232,7 +236,11 @@ class SimulatedBroker(BaseBroker):
                 self.orders.append(base_order)
                 return base_order
 
-            quantity = min(quantity, pos["shares"])
+            if quantity > pos["shares"]:
+                logger.warning(
+                    f"Sell quantity {quantity} exceeds position {pos['shares']} for {symbol}, capping"
+                )
+                quantity = pos["shares"]
             fill_price = exec_price * (1 - self.slippage)
             amount = fill_price * quantity
             commission = max(amount * self.commission_rate, self.min_commission)
@@ -286,12 +294,15 @@ class SimulatedBroker(BaseBroker):
             return None
         return float(row.iloc[0]["close"])
 
+    def _limit_ratio(self, symbol: str) -> float:
+        """Return limit-up/down ratio based on board type (A-share rules)."""
+        if symbol.startswith("300") or symbol.startswith("688"):
+            return 0.20
+        return 0.10
+
     def _prev_close(self, symbol: str) -> float | None:
         if self._prev_close_map and symbol in self._prev_close_map:
             return float(self._prev_close_map[symbol])
-        pos = self._positions.get(symbol)
-        if pos:
-            return float(pos["cost_basis"])
         return None
 
     def _market_value(self, day_quotes: pd.DataFrame | None = None) -> float:

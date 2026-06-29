@@ -64,6 +64,8 @@ class VolatilityPositionSizer:
         for sym in selected_symbols:
             raw_shares = risk_budget / (self.atr_multiplier * atrs[sym])
             rounded = int(raw_shares / 100) * 100
+            if rounded == 0 and raw_shares >= 50:
+                rounded = 100
             target_shares[sym] = max(rounded, 0)
 
         # Cash cap: if we don't have enough cash, scale down proportionally.
