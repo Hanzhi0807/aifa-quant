@@ -251,6 +251,67 @@ def push_nav(client, store: DuckDBStore, profile: str) -> None:
         print(f"[{profile}] Pushed {len(records)} NAV points")
 
 
+def push_shap_summary(client, csv_path: str | Path, model_date: str | None = None) -> None:
+    """Push SHAP summary CSV to Supabase shap_summary table."""
+    csv_path = Path(csv_path)
+    if not csv_path.exists():
+        print(f"[SHAP] File not found: {csv_path}")
+        return
+
+    df = pd.read_csv(csv_path)
+    if df.empty:
+        print("[SHAP] Empty summary, nothing to push")
+        return
+
+    if model_date is None:
+        model_date = date.today().isoformat()
+
+    # Clear old data for this model_date
+    client.table("shap_summary").delete().eq("model_date", model_date).execute()
+
+    records = [
+        {
+            "feature": row["feature"],
+            "mean_abs_shap": round(float(row["mean_abs_shap"]), 6),
+            "model_date": model_date,
+        }
+        for _, row in df.iterrows()
+    ]
+
+    client.table("shap_summary").insert(records).execute()
+    print(f"[SHAP] Pushed {len(records)} features for model_date={model_date}")
+
+
+def push_weekly_report(client, md_path: str | Path) -> None:
+    """Push a weekly report markdown file to Supabase weekly_reports table."""
+    md_path = Path(md_path)
+    if not md_path.exists():
+        print(f"[Report] File not found: {md_path}")
+        return
+
+    content = md_path.read_text(encoding="utf-8")
+    filename = md_path.name
+
+    # Extract date from filename: weekly_picks_YYYYMMDD.md
+    date_str = filename.replace("weekly_picks_", "").replace(".md", "")
+    if len(date_str) == 8:
+        report_date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
+    else:
+        report_date = date.today().isoformat()
+
+    title = f"AI 选股报告 {report_date}"
+
+    record = {
+        "filename": filename,
+        "report_date": report_date,
+        "title": title,
+        "content": content,
+    }
+
+    client.table("weekly_reports").upsert(record, on_conflict="filename").execute()
+    print(f"[Report] Pushed report: {filename}")
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Push signals to Supabase from DuckDB")
     parser.add_argument("--profile", default=None, help="Strategy profile name (default: all)")

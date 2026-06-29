@@ -690,6 +690,22 @@ def weekly_report(
             cache_only=cache_only,
         )
         print(f"[green]选股报告已生成: {path}[/green]")
+
+        # Push to Supabase
+        try:
+            import os, sys as _sys
+            from pathlib import Path as _Path
+            if os.environ.get("SUPABASE_URL") and os.environ.get("SUPABASE_SERVICE_ROLE_KEY"):
+                _proj_root = str(_Path(__file__).resolve().parent.parent.parent)
+                if _proj_root not in _sys.path:
+                    _sys.path.insert(0, _proj_root)
+                from scripts.push_to_supabase import get_supabase_client, push_weekly_report
+                client = get_supabase_client()
+                push_weekly_report(client, path)
+                print("[green]报告已同步到云端[/green]")
+        except Exception as e:
+            print(f"[yellow]云端同步跳过: {e}[/yellow]")
+
     except Exception as e:
         print(f"[red]生成报告失败: {e}[/red]")
         raise typer.Exit(code=1)
@@ -754,6 +770,21 @@ def explain(
         output_dir=output_dir,
     )
     print(f"[green]SHAP 解释结果已保存到 {output_dir}[/green]")
+
+    # Push to Supabase
+    try:
+        import os, sys as _sys
+        from pathlib import Path as _Path
+        if os.environ.get("SUPABASE_URL") and os.environ.get("SUPABASE_SERVICE_ROLE_KEY"):
+            _proj_root = str(_Path(__file__).resolve().parent.parent.parent)
+            if _proj_root not in _sys.path:
+                _sys.path.insert(0, _proj_root)
+            from scripts.push_to_supabase import get_supabase_client, push_shap_summary
+            client = get_supabase_client()
+            push_shap_summary(client, _Path(output_dir) / "shap_summary.csv", end)
+            print("[green]SHAP 数据已同步到云端[/green]")
+    except Exception as e:
+        print(f"[yellow]云端同步跳过: {e}[/yellow]")
 
 
 @app.command("list-templates")
