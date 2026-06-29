@@ -95,9 +95,11 @@ python scripts/daily_refresh.py --force --skip-paper-trade
 
 ## 6. 策略与执行
 
-- 默认选股策略是 `TopKDropoutStrategy`。
-- 模拟交易/回测支持 5 个 profile：`aggressive` / `balanced` / `conservative` / `growth` / `value`。
+- 默认选股策略是 `TopKDropoutStrategy`（top_k=20, max_industry_pct=0.30）。
+- 选股增强三件套：行业集中度控制（`max_industry_pct`）、市场体制过滤（`regime_ma_threshold`，基于 MA20/MA60）、Dropout 滞后（`dropout_threshold = top_k * 2`）。
+- 模拟交易/回测支持 5 个 profile：`aggressive`(15) / `balanced`(20) / `conservative`(30) / `growth`(20) / `value`(25)，括号内为持仓数。
 - 不同 profile 的差异化靠 `apply_profile_score()` 按 `factor_weights` 加权特征列前缀实现，**不能只改 `top_k`**。
+- `generate_signals()` 接受 `industry_map: dict[str, str] | None` 参数用于行业约束；CLI 和 paper_trading 自动从 `stock_universe` 表加载。
 - 模拟交易通过 `SimulatedBroker` 成交，已内置 A股规则：100 股整数手、买入佣金最低 5 元、卖出印花税 0.1%、涨跌停过滤。
 - 仓位 sizing 公式：`target_risk_pct / (N × ATR)`，其中 `N` 为 ATR 乘数，默认 2。
 - 风控计算需要至少 15 条 K 线；`paper_trading/engine.py` 已单独加载 60 天 OHLCV。

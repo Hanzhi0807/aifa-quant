@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-06-29
+
+### Added
+- 行业集中度控制：`max_industry_pct` 参数限制单一行业在持仓中的最大占比，贪心选股时自动跳过超限行业。
+- 市场体制过滤：`regime_ma_threshold` 通过沪深 300 MA20/MA60 比值检测熊市环境，触发阈值时暂停新建仓。
+- Profile 参数升级：所有 profile 的 `top_k` 提升至 15–30，新增 `rebalance_freq`、`max_industry_pct`、`regime_ma_threshold` 字段。
+
+### Changed
+- `TopKDropoutStrategy` 默认 `top_k` 从 5 改为 20，新增 `max_industry_pct` 构造参数。
+- `generate_signals()` 新增 `industry_map` 可选参数，用于行业约束选股。
+- `BacktestEngine` 新增 `regime_ma_threshold` 和 `industry_map` 构造参数，回测时自动传递行业信息和体制过滤。
+- `PaperTradingEngine` 自动从 `stock_universe` 表加载行业映射，并按 profile 配置传递行业约束。
+- CLI `backtest` 命令自动加载 CSI300 指数数据用于体制过滤，从 profile 读取 `regime_ma_threshold`。
+
 ## [0.6.0] - 2026-06-26
 
 ### Added

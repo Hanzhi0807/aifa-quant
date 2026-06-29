@@ -209,7 +209,7 @@ SELECT * FROM paper_nav WHERE profile = 'balanced' ORDER BY trade_date;
 3. **构建特征**：读取 DuckDB 缓存数据，生成技术/基本面/宏观因子（默认 `cache_only=True`，不调用 iFind）。
 4. **预测打分**：对当日所有股票输出上涨概率 `pred_score`。
 5. **应用 profile**：`apply_profile_score()` 按 profile 的 `factor_weights` 加权特征列前缀，把模型分与因子偏好混合成最终分数。
-6. **生成信号**：`TopKDropoutStrategy` 选出 TopK 股票；已在持仓中的股票若排名未掉出 `dropout_threshold`（默认 `top_k * 2`）则保留。
+6. **生成信号**：`TopKDropoutStrategy` 选出 TopK 股票；已在持仓中的股票若排名未掉出 `dropout_threshold`（默认 `top_k * 2`）则保留。选股时自动加载 `stock_universe` 表的行业映射，按 `max_industry_pct`（默认 30%）限制单一行业占比；若当日沪深 300 MA20/MA60 < `regime_ma_threshold` 则判定为熊市，跳过全部新建仓。
 7. **仓位 sizing**：按 `target_risk_pct / (N × ATR)` 计算每只股票目标仓位，其中 `N` 为 ATR 乘数。
 8. **风控检查**：`ATRStopManager` 加载至少 60 天 OHLCV，检测止损、止盈、单日暴跌、利润回撤信号。
 9. **模拟下单**：调用 `SimulatedBroker`，按当日收盘价成交，并扣减佣金、印花税。
