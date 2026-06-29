@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import type { FormEvent } from 'react'
 import { supabase } from '../lib/supabase'
 
 export function Auth() {
@@ -6,17 +7,13 @@ export function Auth() {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [mode, setMode] = useState<'login' | 'signup'>('login')
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
     setLoading(true)
     setError('')
 
-    const { error } =
-      mode === 'login'
-        ? await supabase.auth.signInWithPassword({ email, password })
-        : await supabase.auth.signUp({ email, password })
+    const { error } = await supabase.auth.signInWithPassword({ email, password })
 
     if (error) setError(error.message)
     setLoading(false)
@@ -53,18 +50,12 @@ export function Auth() {
             disabled={loading}
             className="w-full py-3 bg-blue-600 hover:bg-blue-700 rounded-lg font-medium transition disabled:opacity-50"
           >
-            {loading ? '...' : mode === 'login' ? '登录' : '注册'}
+            {loading ? '...' : '登录'}
           </button>
         </form>
 
-        <p className="text-slate-400 text-sm text-center mt-4">
-          {mode === 'login' ? '没有账号？' : '已有账号？'}
-          <button
-            onClick={() => setMode(mode === 'login' ? 'signup' : 'login')}
-            className="text-blue-400 hover:underline ml-1"
-          >
-            {mode === 'login' ? '注册' : '登录'}
-          </button>
+        <p className="text-slate-400 text-xs text-center mt-4">
+          仅限受邀账号访问。请使用管理员创建或邀请的邮箱登录。
         </p>
       </div>
     </div>

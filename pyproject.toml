@@ -31,6 +31,7 @@ dependencies = [
     "pyarrow>=15.0.0",
     "requests>=2.31.0",
     "httpx>=0.27.0",
+    "supabase>=2.0.0",
     "pandas-ta>=0.3.14b",
     "lightgbm>=4.3.0",
     "xgboost>=2.0.0",

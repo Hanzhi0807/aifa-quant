@@ -1,7 +1,7 @@
-"""AkShare adapter for free A-share market data.
+"""AkShare adapter for free A-share market and macro data.
 
-AkShare is used as the default data source for daily quotes and index data.
-Fundamental / macro / sentiment data still relies on iFind MCP.
+AkShare is used as the default data source for daily quotes, index data,
+index components, and best-effort macro fallback data.
 """
 
 import re
@@ -23,10 +23,24 @@ class AkShareAdapter(BaseDataSource):
       - Index component stock lists
 
     Not suitable for:
-      - Quarterly fundamental ratios (use iFind)
-      - Macroeconomic indicators (use iFind)
-      - News sentiment (use iFind)
+      - Quarterly fundamental ratios
+      - News sentiment
     """
+
+    _MACRO_CANDIDATES: dict[str, tuple[tuple[str, int], ...]] = {
+        "cpi_yoy": (
+            ("macro_china_cpi_yearly", 1),
+            ("macro_china_cpi", 1),
+        ),
+        "pmi": (
+            ("macro_china_pmi_yearly", 1),
+            ("macro_china_pmi", 1),
+        ),
+        "m2_yoy": (
+            ("macro_china_m2_yearly", 1),
+            ("macro_china_money_supply", 2),
+        ),
+    }
 
     def __init__(self, settings: Settings | None = None):
         self.settings = settings or Settings()
@@ -104,6 +118,86 @@ class AkShareAdapter(BaseDataSource):
         df = df[[c for c in keep if c in df.columns]].copy()
         return df.dropna(subset=["trade_date", "close"])
 
+    @staticmethod
+    def _parse_macro_dates(series: pd.Series) -> pd.Series:
+        """Parse macro date labels from AkShare endpoints into pandas timestamps."""
+        raw = series.astype(str).str.strip().str.replace(r"\.0$", "", regex=True)
+        compact = raw.str.replace(r"\D", "", regex=True)
+        parsed = pd.to_datetime(raw, errors="coerce")
+
+        formats = {
+            8: "%Y%m%d",
+            6: "%Y%m",
+            4: "%Y",
+        }
+        for length, fmt in formats.items():
+            mask = parsed.isna() & compact.str.len().eq(length)
+            if mask.any():
+                parsed.loc[mask] = pd.to_datetime(compact[mask], format=fmt, errors="coerce")
+
+        mask = parsed.isna()
+        if mask.any():
+            parts = raw[mask].str.extract(r"(?P<year>\d{4})\D*(?P<month>\d{1,2})?\D*(?P<day>\d{1,2})?")
+            if not parts.empty:
+                year = parts["year"]
+                month = parts["month"].fillna("1")
+                day = parts["day"].fillna("1")
+                fallback = pd.to_datetime(year + "-" + month + "-" + day, errors="coerce")
+                parsed.loc[mask] = fallback
+
+        return parsed
+
+    @staticmethod
+    def _coerce_macro_values(series: pd.Series) -> pd.Series:
+        """Coerce macro values that may include percent signs or separators."""
+        clean = (
+            series.astype(str)
+            .str.strip()
+            .str.replace(",", "", regex=False)
+            .str.replace("%", "", regex=False)
+            .str.replace(r"[^\d+\-.eE]", "", regex=True)
+        )
+        return pd.to_numeric(clean, errors="coerce")
+
+    @classmethod
+    def _clean_macro_data(
+        cls,
+        df: pd.DataFrame,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        value_col_index: int = 1,
+    ) -> pd.DataFrame:
+        """Normalize an AkShare macro frame to trade_date/value."""
+        if df.empty:
+            return pd.DataFrame(columns=["trade_date", "value"])
+
+        df = df.copy()
+        date_col = df.columns[0]
+        value_col = df.columns[value_col_index] if len(df.columns) > value_col_index else None
+
+        trade_date = cls._parse_macro_dates(df[date_col])
+        value = cls._coerce_macro_values(df[value_col]) if value_col is not None else pd.Series(dtype="float64")
+
+        if value.notna().sum() == 0:
+            for col in df.columns:
+                if col == date_col:
+                    continue
+                candidate = cls._coerce_macro_values(df[col])
+                if candidate.notna().sum() > 0:
+                    value = candidate
+                    break
+
+        result = pd.DataFrame({"trade_date": trade_date, "value": value})
+        result = result.dropna(subset=["trade_date", "value"]).sort_values("trade_date")
+
+        if start_date:
+            result = result[result["trade_date"] >= pd.to_datetime(start_date)]
+        if end_date:
+            result = result[result["trade_date"] <= pd.to_datetime(end_date)]
+
+        result = result.drop_duplicates(subset=["trade_date"], keep="last").reset_index(drop=True)
+        return result[["trade_date", "value"]]
+
     # ------------------------------------------------------------------
     # Public interface
     # ------------------------------------------------------------------
@@ -162,6 +256,45 @@ class AkShareAdapter(BaseDataSource):
         if end_date:
             df = df[df["trade_date"] <= pd.to_datetime(end_date)]
         return df
+
+    def get_macro_data(
+        self,
+        indicator_name: str,
+        start_date: str | None = None,
+        end_date: str | None = None,
+    ) -> pd.DataFrame:
+        """Fetch a free macro indicator from AkShare.
+
+        Supported indicator names: cpi_yoy, pmi, m2_yoy.
+        Returns columns: trade_date, value.
+        """
+        candidates = self._MACRO_CANDIDATES.get(indicator_name)
+        if not candidates:
+            raise ValueError(f"Unsupported AkShare macro indicator: {indicator_name}")
+
+        last_error: Exception | None = None
+        saw_successful_source = False
+        for func_name, value_col_index in candidates:
+            func = getattr(self._ak, func_name, None)
+            if func is None:
+                continue
+            try:
+                df = func()
+                saw_successful_source = True
+                cleaned = self._clean_macro_data(
+                    df,
+                    start_date=start_date,
+                    end_date=end_date,
+                    value_col_index=value_col_index,
+                )
+                if not cleaned.empty:
+                    return cleaned
+            except Exception as e:
+                last_error = e
+
+        if last_error is not None and not saw_successful_source:
+            raise RuntimeError(f"Failed to fetch AkShare macro indicator {indicator_name}: {last_error}") from last_error
+        return pd.DataFrame(columns=["trade_date", "value"])
 
     @staticmethod
     def _extract_symbols(df: pd.DataFrame) -> list[str]:

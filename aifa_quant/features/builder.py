@@ -3,7 +3,7 @@
 import pandas as pd
 
 from ..config.settings import Settings
-from ..data.adapters import EDBMCPAdapter, StockMCPAdapter, build_free_sentiment_features
+from ..data.adapters import AkShareAdapter, EDBMCPAdapter, StockMCPAdapter, build_free_sentiment_features
 from ..data.constants import INDEX_SYMBOLS
 from ..data.storage import DuckDBStore
 from ..data.validation import DataValidator
@@ -80,7 +80,7 @@ class FeatureBuilder:
             include_fundamental: Whether to merge PE/PB/ROE ratios from iFind.
             include_macro: Whether to merge macroeconomic indicators.
             include_sentiment: Whether to merge news sentiment factors from iFind.
-            cache_only: If True, only use cached fundamental/macro data; do not call iFind for missing data.
+            cache_only: If True, do not call paid/custom missing-data sources; missing macro cache may use AkShare fallback.
             sentiment_source: "ifind" (default) or "free" (Eastmoney via AkShare).
             include_alpha: Whether to include Alpha101/191 style factors.
             alpha_factors: Optional subset of alpha factor names; None means all registered.
@@ -138,8 +138,9 @@ class FeatureBuilder:
 
         # Optionally merge macro data
         if include_macro:
-            print("[yellow]正在获取宏观数据（CPI/PMI/M2）...[/yellow]")
-            edb = EDBMCPAdapter(self.settings)
+            print("[yellow]Fetching macro data (CPI/PMI/M2)...[/yellow]")
+            free_macro_adapter: AkShareAdapter | None = None
+            edb: EDBMCPAdapter | None = None
             macro_indicators = {
                 "cpi_yoy": "中国CPI同比",
                 "pmi": "中国PMI",
@@ -153,23 +154,51 @@ class FeatureBuilder:
                 )
                 cached_macro = self.store.load_macro_data(col_name, macro_start, end_date)
                 if not cached_macro.empty:
-                    print(f"[green]  {col_name}: 已命中缓存 ({len(cached_macro)} 条)[/green]")
+                    print(f"[green]  {col_name}: cache hit ({len(cached_macro)} rows)[/green]")
                     raw = merge_macro_to_daily(raw, cached_macro, col_name)
                     continue
 
+                macro = pd.DataFrame(columns=["trade_date", "value"])
                 if cache_only:
-                    print(f"[yellow]  {col_name}: 缓存为空且 cache_only=True，跳过[/yellow]")
+                    print(f"[yellow]  {col_name}: cache empty; trying AkShare macro fallback[/yellow]")
+                    try:
+                        if free_macro_adapter is None:
+                            free_macro_adapter = AkShareAdapter(self.settings)
+                        macro = free_macro_adapter.get_macro_data(col_name, macro_start, end_date)
+                    except Exception as e:
+                        print(f"  [WARN] {col_name} AkShare macro fallback failed: {e}")
+
+                    if macro.empty:
+                        print(f"[yellow]  {col_name}: no cached/free macro data; skipping[/yellow]")
+                        continue
+
+                    self.store.save_macro_data(macro, col_name)
+                    print(f"[green]  {col_name}: fetched {len(macro)} rows from AkShare fallback[/green]")
+                    raw = merge_macro_to_daily(raw, macro, col_name)
                     continue
 
-                print(f"  从 iFind 拉取 {col_name}: {query}")
+                print(f"  Fetching {col_name} from configured macro data source: {query}")
                 try:
-                    macro = edb.get_macro_data(query, start_date, end_date)
-                    if not macro.empty:
-                        self.store.save_macro_data(macro, col_name)
-                        raw = merge_macro_to_daily(raw, macro, col_name)
+                    if edb is None:
+                        edb = EDBMCPAdapter(self.settings)
+                    macro = edb.get_macro_data(query, macro_start, end_date)
                 except Exception as e:
-                    print(f"  [WARN] {col_name} 宏观数据获取失败: {e}")
+                    print(f"  [WARN] {col_name} configured macro source failed: {e}")
 
+                if macro.empty:
+                    print(f"[yellow]  {col_name}: configured source empty; trying AkShare macro fallback[/yellow]")
+                    try:
+                        if free_macro_adapter is None:
+                            free_macro_adapter = AkShareAdapter(self.settings)
+                        macro = free_macro_adapter.get_macro_data(col_name, macro_start, end_date)
+                    except Exception as e:
+                        print(f"  [WARN] {col_name} AkShare macro fallback failed: {e}")
+
+                if not macro.empty:
+                    self.store.save_macro_data(macro, col_name)
+                    raw = merge_macro_to_daily(raw, macro, col_name)
+                else:
+                    print(f"[yellow]  {col_name}: no macro data available; skipping[/yellow]")
         # Optionally merge sentiment data
         if include_sentiment:
             print(f"[yellow]正在获取情绪因子（来源：{sentiment_source}）...[/yellow]")

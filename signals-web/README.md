@@ -1,32 +1,41 @@
-# React + TypeScript + Vite
+# AIFA Quant Signals Web
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Lightweight cloud dashboard for AIFA Quant daily paper-trading signals. It is a React + Vite frontend that reads Supabase tables directly with the anon key. Writes are performed only by `../scripts/push_to_supabase.py` using the Supabase service role key from the project root `.env`.
 
-Currently, two official plugins are available:
+## Setup
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+1. Run `../supabase/schema.sql` in the Supabase SQL Editor.
+2. Add invited readers to `public.allowed_emails`:
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```sql
+insert into public.allowed_emails (email, note)
+values ('reader@example.com', 'friend');
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+3. Create `signals-web/.env` for local development:
+
+```env
+VITE_SUPABASE_URL=https://xxx.supabase.co
+VITE_SUPABASE_ANON_KEY=eyJhbG...
+```
+
+4. Install and run:
+
+```bash
+npm install
+npm run dev
+```
+
+## Deploy
+
+Deploy this folder to Vercel with:
+
+- Framework: Vite
+- Build command: `npm run build`
+- Output directory: `dist`
+
+Only set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in Vercel. Never expose `SUPABASE_SERVICE_ROLE_KEY` to the frontend.
+
+## Data Semantics
+
+The signal table shows the current paper-trading holdings ordered by market value, not a full-market prediction universe.

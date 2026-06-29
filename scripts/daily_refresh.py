@@ -38,7 +38,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 INDEX_QUERIES = ["沪深300", "中证500", "中证1000"]
-SUPABASE_PROFILE = "balanced"
 # 策略计算需要年初以来的历史，2024 年及以前的数据不再需要
 HISTORY_START = "20250101"
 
@@ -47,13 +46,16 @@ def push_to_supabase() -> None:
     """Push latest positions to Supabase for the web dashboard."""
     import os
 
+    from dotenv import load_dotenv
+
+    load_dotenv(project_root / ".env")
     if not os.environ.get("SUPABASE_URL") or not os.environ.get("SUPABASE_SERVICE_ROLE_KEY"):
         logger.info("SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY not set, skipping push")
         return
 
     from scripts.push_to_supabase import main as push_main
 
-    push_main()
+    push_main([])
 
 
 def run_cli(*args: str) -> None:
@@ -168,12 +170,14 @@ def main(force: bool = False, skip_paper_trade: bool = False) -> None:
             logger.error("模拟交易失败: %s", e)
             raise
 
-    # Push results to Supabase for web dashboard
-    try:
-        push_to_supabase()
-        logger.info("Supabase 推送完成")
-    except Exception as e:
-        logger.warning("Supabase 推送失败（不影响本地数据）: %s", e)
+        # Push results to Supabase only after fresh paper-trading results exist.
+        try:
+            push_to_supabase()
+            logger.info("Supabase 推送完成")
+        except Exception as e:
+            logger.warning("Supabase 推送失败（不影响本地数据）: %s", e)
+    else:
+        logger.info("已跳过模拟交易，因此也跳过 Supabase 推送")
 
     logger.info("===== AifaQuant 每日刷新完成 =====")
 

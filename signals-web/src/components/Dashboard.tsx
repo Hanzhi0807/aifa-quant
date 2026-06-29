@@ -21,6 +21,13 @@ interface Position {
   profile: string
 }
 
+interface NavPoint {
+  trade_date: string
+  nav: number
+  csi300: number
+  sse: number
+}
+
 const PROFILES = [
   { id: 'aggressive', label: '激进型', desc: '高收益高波动', topK: 5, risk: '2.5%', stopLoss: '2.0×', takeProfit: '4.0×' },
   { id: 'balanced', label: '均衡型', desc: '攻守兼备', topK: 8, risk: '2.0%', stopLoss: '2.5×', takeProfit: '5.0×' },
@@ -50,14 +57,95 @@ const FAQ = [
 
 type Tab = 'holdings' | 'orders' | 'about'
 
+function EquityChart({ data }: { data: NavPoint[] }) {
+  if (data.length < 2) {
+    return (
+      <div className="glass-card rounded-2xl p-8 text-center text-[var(--text-muted)]">
+        净值数据积累中，至少需要 2 个交易日才能绘制曲线...
+      </div>
+    )
+  }
+
+  const width = 800
+  const height = 300
+  const pad = { top: 20, right: 20, bottom: 40, left: 50 }
+  const chartW = width - pad.left - pad.right
+  const chartH = height - pad.top - pad.bottom
+
+  const allValues = data.flatMap((d) => [d.nav, d.csi300, d.sse])
+  const minY = Math.min(...allValues) * 0.99
+  const maxY = Math.max(...allValues) * 1.01
+  const rangeY = maxY - minY || 1
+
+  const xScale = (i: number) => pad.left + (i / (data.length - 1)) * chartW
+  const yScale = (v: number) => pad.top + chartH - ((v - minY) / rangeY) * chartH
+
+  const makePath = (values: number[]) =>
+    values.map((v, i) => `${i === 0 ? 'M' : 'L'}${xScale(i).toFixed(1)},${yScale(v).toFixed(1)}`).join(' ')
+
+  const navPath = makePath(data.map((d) => d.nav))
+  const csi300Path = makePath(data.map((d) => d.csi300))
+  const ssePath = makePath(data.map((d) => d.sse))
+
+  const labelInterval = Math.max(1, Math.floor(data.length / 6))
+
+  return (
+    <div className="glass-card rounded-2xl p-5">
+      <h3 className="text-sm font-semibold text-white mb-3">净值走势对比</h3>
+      <div className="flex gap-4 text-xs mb-3">
+        <span className="flex items-center gap-1.5">
+          <span className="w-3 h-0.5 rounded bg-[var(--cyan)]" /> 策略净值
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-3 h-0.5 rounded bg-[var(--orange)]" /> 沪深300
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-3 h-0.5 rounded bg-[var(--text-muted)]" /> 上证指数
+        </span>
+      </div>
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto">
+        {/* Grid lines */}
+        {[0, 0.25, 0.5, 0.75, 1].map((t) => {
+          const y = pad.top + chartH * (1 - t)
+          const val = minY + rangeY * t
+          return (
+            <g key={t}>
+              <line x1={pad.left} y1={y} x2={width - pad.right} y2={y} stroke="rgba(255,255,255,0.05)" />
+              <text x={pad.left - 8} y={y + 4} textAnchor="end" fill="#64748b" fontSize="10">
+                {val.toFixed(2)}
+              </text>
+            </g>
+          )
+        })}
+
+        {/* X-axis labels */}
+        {data.map((d, i) =>
+          i % labelInterval === 0 || i === data.length - 1 ? (
+            <text key={i} x={xScale(i)} y={height - 8} textAnchor="middle" fill="#64748b" fontSize="9">
+              {d.trade_date.slice(5)}
+            </text>
+          ) : null
+        )}
+
+        {/* Lines */}
+        <path d={ssePath} fill="none" stroke="var(--text-muted)" strokeWidth="1.5" opacity="0.6" />
+        <path d={csi300Path} fill="none" stroke="var(--orange)" strokeWidth="1.5" />
+        <path d={navPath} fill="none" stroke="var(--cyan)" strokeWidth="2" />
+      </svg>
+    </div>
+  )
+}
+
 export function Dashboard({ user }: { user: User }) {
   const [signals, setSignals] = useState<Signal[]>([])
   const [portfolio, setPortfolio] = useState<Position[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
   const [signalDate, setSignalDate] = useState('')
   const [activeProfile, setActiveProfile] = useState('balanced')
   const [activeTab, setActiveTab] = useState<Tab>('holdings')
   const [profileCounts, setProfileCounts] = useState<Record<string, number>>({})
+  const [navData, setNavData] = useState<NavPoint[]>([])
 
   useEffect(() => {
     loadProfileCounts()
@@ -65,6 +153,7 @@ export function Dashboard({ user }: { user: User }) {
 
   useEffect(() => {
     loadData(activeProfile)
+    loadNav(activeProfile)
   }, [activeProfile])
 
   const loadProfileCounts = async () => {
@@ -92,33 +181,79 @@ export function Dashboard({ user }: { user: User }) {
     setProfileCounts(counts)
   }
 
+  const loadNav = async (profile: string) => {
+    const { data } = await supabase
+      .from('paper_nav')
+      .select('trade_date,nav,csi300,sse')
+      .eq('profile', profile)
+      .order('trade_date', { ascending: true })
+
+    if (data && data.length > 0) {
+      setNavData(data as NavPoint[])
+    } else {
+      setNavData([])
+    }
+  }
+
   const loadData = async (profile: string) => {
     setLoading(true)
+    setError('')
+
+    const latestRes = await supabase
+      .from('daily_signals')
+      .select('trade_date')
+      .eq('profile', profile)
+      .order('trade_date', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (latestRes.error) {
+      setError(latestRes.error.message)
+      setSignals([])
+      setPortfolio([])
+      setSignalDate('')
+      setLoading(false)
+      return
+    }
+
+    const latestDate = latestRes.data?.trade_date
+    if (!latestDate) {
+      setSignals([])
+      setPortfolio([])
+      setSignalDate('')
+      setLoading(false)
+      return
+    }
 
     const [signalsRes, portfolioRes] = await Promise.all([
       supabase
         .from('daily_signals')
         .select('*')
         .eq('profile', profile)
-        .order('trade_date', { ascending: false })
-        .order('rank')
+        .eq('trade_date', latestDate)
+        .order('rank', { ascending: true })
         .limit(50),
       supabase
         .from('portfolio')
         .select('*')
         .eq('profile', profile)
-        .order('trade_date', { ascending: false })
+        .eq('trade_date', latestDate)
+        .order('weight', { ascending: false })
         .limit(20),
     ])
 
-    if (signalsRes.data?.length) {
-      setSignals(signalsRes.data)
-      setSignalDate(signalsRes.data[0].trade_date)
-    } else {
+    if (signalsRes.error || portfolioRes.error) {
+      setError(signalsRes.error?.message || portfolioRes.error?.message || '加载失败')
       setSignals([])
-      setSignalDate('')
+      setPortfolio([])
+      setSignalDate(latestDate)
+      setLoading(false)
+      return
     }
-    setPortfolio(portfolioRes.data || [])
+
+    setSignals(signalsRes.data ?? [])
+    setPortfolio(portfolioRes.data ?? [])
+    setSignalDate(latestDate)
     setLoading(false)
   }
 
@@ -163,6 +298,12 @@ export function Dashboard({ user }: { user: User }) {
             </button>
           </div>
         </header>
+
+        {error && (
+          <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+            {error}
+          </div>
+        )}
 
         {/* Profile selector */}
         <section>
@@ -211,6 +352,11 @@ export function Dashboard({ user }: { user: User }) {
               </button>
             ))}
           </div>
+        </section>
+
+        {/* Equity Chart */}
+        <section>
+          <EquityChart data={navData} />
         </section>
 
         {/* Risk disclaimer */}
