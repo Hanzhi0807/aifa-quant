@@ -1,4 +1,4 @@
-# AifaQuant · 爱发量化
+# AI Factor Alpha（AIFA） Quant · 爱发量化
 
 [![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue)](https://www.python.org/)
 ![License](https://img.shields.io/badge/license-MIT-green)
