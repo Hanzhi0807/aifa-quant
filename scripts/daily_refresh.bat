@@ -1,6 +1,6 @@
 @echo off
 chcp 65001 >nul
-setlocal
+setlocal EnableDelayedExpansion
 
 :: AifaQuant 每日自动刷新脚本
 :: 建议用 Windows 任务计划程序每天 15:35 运行一次（A股收盘后）
@@ -9,8 +9,14 @@ setlocal
 set PROJECT_ROOT=%~dp0..
 cd /d "%PROJECT_ROOT%"
 
-call .venv\Scripts\activate.bat
-python scripts\daily_refresh.py >> data_store\daily_refresh.log 2>&1
+:: Load .env file
+for /f "usebackq tokens=1,* delims==" %%a in (".env") do (
+    set "line=%%a"
+    if not "!line:~0,1!"=="#" (
+        if not "%%b"=="" set "%%a=%%b"
+    )
+)
 
-deactivate
+:: Use system Python (no .venv on this machine)
+"C:\Users\hanzhi.jiang\AppData\Local\Programs\Python\Python313\python.exe" scripts\daily_refresh.py >> data_store\daily_refresh.log 2>&1
 endlocal
