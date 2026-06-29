@@ -277,15 +277,15 @@ NODE_ENV=production node dist/boot.js
 
 ### 云端信号看板（signals-web/）
 
-独立的轻量前端，部署在 **Vercel**，后端使用 **Supabase**（PostgreSQL + Auth + RLS）。每日收盘后由 `scripts/push_to_supabase.py` 自动将 5 个 profile 的持仓信号推送到云端数据库，无需本地开机即可随时查看最新信号。
+独立的轻量前端，部署在 **Vercel**，后端使用 **Supabase**（PostgreSQL + Auth + RLS）。每日收盘后由 `scripts/push_to_supabase.py` 将 5 个 profile 的持仓信号推送到云端数据库，推送后即可随时查看最新信号。
 
 **技术栈**：React 19 + Vite + TailwindCSS 4 + Supabase JS SDK
 
 **功能**：
-- Supabase Auth 邮箱登录（仅邀请制）；
+- Supabase Auth 邮箱登录；前端不开放注册，访问权限由 Supabase RLS + `allowed_emails` 白名单控制；
 - 5 种策略 profile 一键切换（激进 / 均衡 / 稳健 / 价值 / 成长）；
 - 每日 Top 50 信号排名 + 当日持仓推荐卡片；
-- Vercel 自动部署，push to main 即上线。
+- Vercel 部署，可绑定仓库自动部署或手动部署。
 
 **本地开发**：
 
@@ -295,11 +295,30 @@ npm install
 npm run dev
 ```
 
-**环境变量**（`.env` 或 Vercel 面板）：
+**Supabase 初始化**：
+
+1. 在 Supabase SQL Editor 中执行 [`supabase/schema.sql`](supabase/schema.sql)。
+2. 只给受邀邮箱授权访问：
+
+```sql
+insert into public.allowed_emails (email, note)
+values ('reader@example.com', 'friend');
+```
+
+**环境变量**：
+
+前端本地 `.env` 或 Vercel 面板只配置 anon key：
 
 ```
 VITE_SUPABASE_URL=https://xxx.supabase.co
 VITE_SUPABASE_ANON_KEY=eyJhbG...
+```
+
+根目录 `.env` 配置服务端推送密钥，**不要放到 Vercel 前端环境变量**：
+
+```
+SUPABASE_URL=https://xxx.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=eyJhbG...
 ```
 
 **数据推送**：

@@ -33,6 +33,7 @@ export function Dashboard({ user }: { user: User }) {
   const [signals, setSignals] = useState<Signal[]>([])
   const [portfolio, setPortfolio] = useState<Position[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
   const [signalDate, setSignalDate] = useState('')
   const [activeProfile, setActiveProfile] = useState('balanced')
 
@@ -42,38 +43,65 @@ export function Dashboard({ user }: { user: User }) {
 
   const loadData = async (profile: string) => {
     setLoading(true)
+    setError('')
+
+    const latestRes = await supabase
+      .from('daily_signals')
+      .select('trade_date')
+      .eq('profile', profile)
+      .order('trade_date', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (latestRes.error) {
+      setError(latestRes.error.message)
+      setSignals([])
+      setPortfolio([])
+      setSignalDate('')
+      setLoading(false)
+      return
+    }
+
+    const latestDate = latestRes.data?.trade_date
+    if (!latestDate) {
+      setSignals([])
+      setPortfolio([])
+      setSignalDate('')
+      setLoading(false)
+      return
+    }
 
     const [signalsRes, portfolioRes] = await Promise.all([
       supabase
         .from('daily_signals')
         .select('*')
         .eq('profile', profile)
-        .order('trade_date', { ascending: false })
-        .order('rank')
+        .eq('trade_date', latestDate)
+        .order('rank', { ascending: true })
         .limit(50),
       supabase
         .from('portfolio')
         .select('*')
         .eq('profile', profile)
-        .order('trade_date', { ascending: false })
+        .eq('trade_date', latestDate)
+        .order('weight', { ascending: false })
         .limit(20),
     ])
 
-    if (signalsRes.data?.length) {
-      setSignals(signalsRes.data)
-      setSignalDate(signalsRes.data[0].trade_date)
-    } else {
+    if (signalsRes.error || portfolioRes.error) {
+      setError(signalsRes.error?.message || portfolioRes.error?.message || '加载失败')
       setSignals([])
-      setSignalDate('')
-    }
-    if (portfolioRes.data?.length) {
-      setPortfolio(portfolioRes.data)
-    } else {
       setPortfolio([])
+      setSignalDate(latestDate)
+      setLoading(false)
+      return
     }
+
+    setSignals(signalsRes.data ?? [])
+    setPortfolio(portfolioRes.data ?? [])
+    setSignalDate(latestDate)
     setLoading(false)
   }
-
   const handleLogout = async () => {
     await supabase.auth.signOut()
   }
@@ -104,6 +132,12 @@ export function Dashboard({ user }: { user: User }) {
           </button>
         </div>
       </div>
+
+      {error && (
+        <div className="mb-6 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+          {error}
+        </div>
+      )}
 
       {/* Profile Selector */}
       <div className="mb-6 flex flex-wrap gap-2">
