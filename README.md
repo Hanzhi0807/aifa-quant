@@ -26,7 +26,7 @@ AifaQuant 是一个**本地优先的 A股 AI 量化研究与回测框架**，覆
 - **回测**：A股规则引擎（T+1、涨跌停、100 股整数手、佣金、印花税），支持沪深 300 / 上证指数基准对比。
 - **模拟交易**：按 profile 隔离持仓，虚拟成交并持久化到 DuckDB。
 - **Web 仪表盘**：React + Hono + tRPC + DuckDB，支持 profile 切换、独立持仓、基准叠加权益曲线。
-- **自动化**：`scripts/daily_refresh.py` 每日增量刷新数据并自动运行模拟交易；每周 AI 选股报告自动生成。
+- **自动化**：`scripts/daily_refresh.py` 每日增量刷新数据并自动运行模拟交易；`scripts/push_to_supabase.py` 将信号推送到云端看板；每周 AI 选股报告自动生成。
 
 ---
 
@@ -154,6 +154,7 @@ python -m aifa_quant.cli.main explain \
 |------|------|
 | `python scripts/daily_refresh.py` | 每日增量刷新数据 + 指数 + 模拟交易 |
 | `python scripts/daily_refresh.py --force --skip-paper-trade` | 首次全量拉取数据 |
+| `python scripts/push_to_supabase.py` | 推送所有 profile 信号到 Supabase 云端 |
 | `python scripts/update_index_data.py` | 同步更新指数基准 |
 | `python -m aifa_quant.cli.main data-update --universe 沪深300 --start 20250101 --end <今天日期>` | 用 AkShare 更新日线数据 |
 | `python -m aifa_quant.cli.main db-info` | 查看 DuckDB 数据概览 |
@@ -193,8 +194,9 @@ aifa_quant/
 │   ├── analysis/             # 因子分析 / SHAP
 │   ├── research/             # 每周选股报告
 │   └── cli/                  # Typer 命令行入口
-├── web/                      # React + Hono + tRPC + DuckDB 仪表盘
-├── scripts/                  # 每日刷新、指数更新、数据导入导出、SHAP 等脚本
+├── web/                      # 本地仪表盘（React + Hono + tRPC + DuckDB）
+├── signals-web/              # 云端信号看板（React + Vite + Supabase，部署 Vercel）
+├── scripts/                  # 每日刷新、指数更新、Supabase 推送等脚本
 ├── tests/                    # 单元测试
 ├── data_store/               # DuckDB、模型、报告（不提交 Git）
 └── docs/                     # 文档
@@ -208,7 +210,8 @@ AifaQuant 采用**本地优先**的数据策略：
 
 1. **首次部署**：`scripts/daily_refresh.py --force --skip-paper-trade` 一次性拉取约 1800 只股票从 2025-01-01 起的日线和指数数据。
 2. **每日增量**：`scripts/daily_refresh.py` 工作日自动增量更新日线、指数，并运行所有 profile 的模拟交易。
-3. **备份迁移**：直接复制 `data_store/aifa_quant.duckdb` 即可，**不通过 GitHub Release 分发数据**。
+3. **云端推送**：`scripts/push_to_supabase.py` 将本地 DuckDB 中的持仓数据推送到 Supabase，供云端信号看板展示。
+4. **备份迁移**：直接复制 `data_store/aifa_quant.duckdb` 即可，**不通过 GitHub Release 分发数据**。
 
 详见 [`docs/DATA.md`](docs/DATA.md)。
 
@@ -246,6 +249,8 @@ final_score = 0.7 × model_score + 0.3 × profile_factor_score
 
 ## Web 仪表盘
 
+### 本地版（web/）
+
 ```bash
 cd web
 npm install
@@ -269,6 +274,45 @@ NODE_ENV=production node dist/boot.js
 ```
 
 > Web 直接读取本地 DuckDB，不再依赖 MySQL。部署说明见 [`web/DEPLOY.md`](web/DEPLOY.md)。
+
+### 云端信号看板（signals-web/）
+
+独立的轻量前端，部署在 **Vercel**，后端使用 **Supabase**（PostgreSQL + Auth + RLS）。每日收盘后由 `scripts/push_to_supabase.py` 自动将 5 个 profile 的持仓信号推送到云端数据库，无需本地开机即可随时查看最新信号。
+
+**技术栈**：React 19 + Vite + TailwindCSS 4 + Supabase JS SDK
+
+**功能**：
+- Supabase Auth 邮箱登录（仅邀请制）；
+- 5 种策略 profile 一键切换（激进 / 均衡 / 稳健 / 价值 / 成长）；
+- 每日 Top 50 信号排名 + 当日持仓推荐卡片；
+- Vercel 自动部署，push to main 即上线。
+
+**本地开发**：
+
+```bash
+cd signals-web
+npm install
+npm run dev
+```
+
+**环境变量**（`.env` 或 Vercel 面板）：
+
+```
+VITE_SUPABASE_URL=https://xxx.supabase.co
+VITE_SUPABASE_ANON_KEY=eyJhbG...
+```
+
+**数据推送**：
+
+```bash
+# 推送所有 profile 到 Supabase
+python scripts/push_to_supabase.py
+
+# 仅推送单个 profile
+python scripts/push_to_supabase.py --profile balanced
+```
+
+> 推送使用 Service Role Key（绕过 RLS），需在 `.env` 中配置 `SUPABASE_URL` 和 `SUPABASE_SERVICE_ROLE_KEY`。
 
 ---
 
