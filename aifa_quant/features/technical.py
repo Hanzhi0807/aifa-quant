@@ -62,7 +62,10 @@ def compute_rsi(df: pd.DataFrame, window: int = 14) -> pd.DataFrame:
     avg_gain = gain.rolling(window=window, min_periods=1).mean()
     avg_loss = loss.rolling(window=window, min_periods=1).mean()
     rs = avg_gain / avg_loss.replace(0, np.nan)
-    df[f"rsi_{window}"] = 100 - (100 / (1 + rs))
+    rsi = 100 - (100 / (1 + rs))
+    rsi = rsi.fillna(100.0)
+    rsi = rsi.where(avg_gain > 0, 0.0)
+    df[f"rsi_{window}"] = rsi
     return df
 
 

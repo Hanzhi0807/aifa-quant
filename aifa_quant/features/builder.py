@@ -10,7 +10,6 @@ from ..data.validation import DataValidator
 from .alpha_factors import compute_alpha_factors, list_alpha_factors
 from .fundamental import merge_fundamental_to_daily
 from .macro import merge_macro_to_daily
-from .selection import drop_highly_correlated
 from .sentiment import build_sentiment_features, merge_sentiment_to_daily
 from .technical import (
     compute_atr,
@@ -85,7 +84,7 @@ class FeatureBuilder:
             sentiment_source: "ifind" (default) or "free" (Eastmoney via AkShare).
             include_alpha: Whether to include Alpha101/191 style factors.
             alpha_factors: Optional subset of alpha factor names; None means all registered.
-            corr_threshold: If not None, drop one feature from each highly correlated pair.
+            corr_threshold: Retained for CLI compatibility; rolling trainers apply feature selection inside each train window.
         """
         print("[yellow]正在从 DuckDB 加载原始日线数据...[/yellow]")
         raw = self.load_raw_data(symbols, start_date, end_date)
@@ -102,7 +101,12 @@ class FeatureBuilder:
         if include_fundamental:
             print("[yellow]正在获取基本面数据（PE/PB/ROE）...[/yellow]")
             symbols = raw["symbol"].unique().tolist()
-            cached_fundamental = self.store.load_fundamental_data(symbols, start_date, end_date)
+            fundamental_start = (
+                (pd.to_datetime(start_date) - pd.Timedelta(days=370)).strftime("%Y%m%d")
+                if start_date
+                else None
+            )
+            cached_fundamental = self.store.load_fundamental_data(symbols, fundamental_start, end_date)
             cached_symbols = set(cached_fundamental["symbol"].unique()) if not cached_fundamental.empty else set()
             missing_symbols = [s for s in symbols if s not in cached_symbols]
 
@@ -142,7 +146,12 @@ class FeatureBuilder:
                 "m2_yoy": "中国M2同比",
             }
             for col_name, query in macro_indicators.items():
-                cached_macro = self.store.load_macro_data(col_name, start_date, end_date)
+                macro_start = (
+                    (pd.to_datetime(start_date) - pd.Timedelta(days=90)).strftime("%Y%m%d")
+                    if start_date
+                    else None
+                )
+                cached_macro = self.store.load_macro_data(col_name, macro_start, end_date)
                 if not cached_macro.empty:
                     print(f"[green]  {col_name}: 已命中缓存 ({len(cached_macro)} 条)[/green]")
                     raw = merge_macro_to_daily(raw, cached_macro, col_name)
@@ -219,19 +228,16 @@ class FeatureBuilder:
             if df[col].isna().mean() > nan_threshold:
                 df = df.drop(columns=[col])
 
-        # Fill remaining NaNs with median per symbol, then global median
+        # Fill remaining NaNs without looking forward. First use each symbol's
+        # expanding median, then a date-level expanding median, then zero for
+        # columns that have no historical observations yet.
+        df = df.sort_values(["symbol", "trade_date"]).reset_index(drop=True)
         features = self.feature_columns(df)
         for col in features:
-            df[col] = df.groupby("symbol")[col].transform(lambda x: x.fillna(x.median()))
-            df[col] = df[col].fillna(df[col].median())
-
-        # Drop highly correlated features to reduce multicollinearity / overfitting
-        if corr_threshold is not None:
-            before = len(features)
-            features = drop_highly_correlated(df, features, threshold=corr_threshold)
-            dropped = before - len(features)
-            if dropped:
-                print(f"[cyan]特征筛选：已移除 {dropped} 个高相关性特征，剩余 {len(features)} 个[/cyan]")
+            df[col] = df.groupby("symbol")[col].transform(lambda x: x.fillna(x.expanding(min_periods=1).median()))
+            date_median = df.groupby("trade_date")[col].median().sort_index().expanding(min_periods=1).median()
+            df[col] = df[col].fillna(df["trade_date"].map(date_median))
+            df[col] = df[col].fillna(0.0)
 
         if prediction_mode:
             df = df.dropna(subset=features)
@@ -255,6 +261,7 @@ class FeatureBuilder:
             "adj_factor",
             "created_at",
             "report_date",
+            "ann_date",
             "label_return",
             "label_binary",
         }

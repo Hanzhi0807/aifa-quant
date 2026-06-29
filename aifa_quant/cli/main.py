@@ -175,7 +175,7 @@ def backtest(
     corr_threshold: float = typer.Option(
         0.95,
         "--corr-threshold",
-        help="Drop one feature from each pair with abs correlation >= threshold (set 1.0 to disable)",
+        help="Rolling backtests: drop one feature from each train-window pair with abs correlation >= threshold (set 1.0 to disable)",
     ),
     cache_only: bool = typer.Option(
         False, "--cache-only", help="Only use cached fundamental/macro data; do not call iFind for missing data"
@@ -244,7 +244,7 @@ def backtest(
     model = None
     if rolling:
         print("[yellow]正在滚动训练生成 out-of-sample 预测...[/yellow]")
-        trainer = RollingTrainer(train_window_days=252 * 2, min_train_samples=500, settings=settings)
+        trainer = RollingTrainer(train_window_days=252 * 2, min_train_samples=500, settings=settings, label_horizon=5, corr_threshold=corr_threshold)
         # Align retraining dates with rebalance frequency to avoid training every day.
         all_dates = sorted(features["trade_date"].unique())
         rebalance_dates = all_dates[::freq]
@@ -422,7 +422,7 @@ def factor_analysis(
     horizon: int = typer.Option(5, "--horizon", help="Forward return horizon in days"),
     n_quantiles: int = typer.Option(10, "--quantiles", help="Number of quantile buckets"),
     include_sentiment: bool = typer.Option(False, "--sentiment/--no-sentiment", help="Include news sentiment factors"),
-    corr_threshold: float = typer.Option(0.95, "--corr-threshold", help="Drop highly correlated features"),
+    corr_threshold: float = typer.Option(0.95, "--corr-threshold", help="Compatibility option; filtering is applied only inside rolling backtests"),
     cache_only: bool = typer.Option(True, "--cache-only", help="Only use cached fundamental/macro data"),
     yes: bool = typer.Option(False, "--yes", help="Skip iFind usage confirmation"),
 ):
@@ -562,7 +562,7 @@ def train(
     corr_threshold: float = typer.Option(
         0.95,
         "--corr-threshold",
-        help="Drop one feature from each pair with abs correlation >= threshold (set 1.0 to disable)",
+        help="Compatibility option; filtering is applied only inside rolling backtests",
     ),
     cache_only: bool = typer.Option(
         False, "--cache-only", help="Only use cached fundamental/macro data; do not call iFind for missing data"
@@ -676,7 +676,7 @@ def explain(
     max_samples: int = typer.Option(500, "--max-samples", help="Max rows for TreeSHAP"),
     output_dir: str = typer.Option("./data_store/reports/shap", "--output", help="Directory to save SHAP outputs"),
     include_sentiment: bool = typer.Option(True, "--sentiment/--no-sentiment", help="Include news sentiment factors"),
-    corr_threshold: float = typer.Option(0.95, "--corr-threshold", help="Drop highly correlated features"),
+    corr_threshold: float = typer.Option(0.95, "--corr-threshold", help="Compatibility option; filtering is applied only inside rolling backtests"),
     cache_only: bool = typer.Option(False, "--cache-only", help="Only use cached fundamental/macro data"),
     yes: bool = typer.Option(False, "--yes", help="Skip iFind usage confirmation"),
 ):
@@ -815,7 +815,7 @@ def paper_run(
     corr_threshold: float = typer.Option(
         0.95,
         "--corr-threshold",
-        help="高相关性特征剔除阈值",
+        help="兼容参数；高相关性筛选仅用于 rolling 回测训练窗口",
     ),
     profile: str = typer.Option(
         "balanced", "--profile", help="策略 profile（aggressive/balanced/conservative/growth/value）"

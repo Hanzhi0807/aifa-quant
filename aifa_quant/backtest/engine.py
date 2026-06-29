@@ -66,6 +66,7 @@ class BacktestEngine:
 
         self.quotes_by_date: dict[pd.Timestamp, pd.DataFrame] = {}
         self.prev_day_quotes: pd.DataFrame | None = None
+        self._last_known_price: dict[str, float] = {}
 
     def reset(self) -> None:
         self.cash = self.initial_cash
@@ -74,6 +75,7 @@ class BacktestEngine:
         self.daily_values = []
         self.quotes_by_date = {}
         self.prev_day_quotes = None
+        self._last_known_price = {}
 
     def run(
         self,
@@ -113,15 +115,22 @@ class BacktestEngine:
             feat_cols = [c for c in features.columns if c in model.feature_names]
             features["pred_score"] = model.predict(features[feat_cols])
 
-        last_rebalance = None
-        target_symbols: set = set()
+        last_rebalance_idx: int | None = None
+        pending_targets: set[str] | None = None
 
-        for date in dates:
+        for i, date in enumerate(dates):
             day_quotes = self.quotes_by_date[date]
             day_features = features[features["trade_date"] == date]
 
-            # Rebalance on first day and every rebalance_freq days
-            if last_rebalance is None or (date - last_rebalance).days >= self.rebalance_freq:
+            # Execute the prior trading day's close signal at today's open.
+            if pending_targets is not None:
+                self._rebalance(date, day_quotes, pending_targets, price_col="open")
+                pending_targets = None
+
+            # Generate today's signal after today's data is known. It will be
+            # executed on the next trading day, so execution never uses the same
+            # close that created the signal.
+            if last_rebalance_idx is None or (i - last_rebalance_idx) >= self.rebalance_freq:
                 if not day_features.empty:
                     hold_symbols = set(self.positions.keys())
                     signals = strategy.generate_signals(
@@ -130,11 +139,10 @@ class BacktestEngine:
                         hold_symbols=list(hold_symbols),
                     )
                     selected = signals[signals["selected"]]["symbol"].tolist()
-                    target_symbols = set(selected)
-                    self._rebalance(date, day_quotes, target_symbols)
-                    last_rebalance = date
+                    pending_targets = set(selected)
+                    last_rebalance_idx = i
 
-            # Mark to market
+            # Mark to market at the close.
             self._record_value(date, day_quotes)
             self.prev_day_quotes = day_quotes
 
@@ -145,30 +153,38 @@ class BacktestEngine:
         date: pd.Timestamp,
         day_quotes: pd.DataFrame,
         target_symbols: set,
+        price_col: str = "close",
     ) -> None:
         """Rebalance portfolio to target_symbols with equal weights."""
-        # First, sell positions not in target
+        # First, sell positions not in target.
         for sym in list(self.positions.keys()):
             if sym not in target_symbols:
-                self._sell_all(date, day_quotes, sym)
+                self._sell_all(date, day_quotes, sym, price_col=price_col)
 
-        # Determine targets that have price data today
-        available_targets = [sym for sym in target_symbols if sym in day_quotes["symbol"].values]
+        # Determine targets that have execution price data today. New positions
+        # that are already limit-up are excluded before cash is allocated.
+        available_targets = []
+        for sym in target_symbols:
+            row = day_quotes[day_quotes["symbol"] == sym]
+            if row.empty or price_col not in row.columns:
+                continue
+            price = float(row.iloc[0][price_col])
+            if pd.isna(price) or price <= 0:
+                continue
+            prev_close = self._prev_close(sym)
+            current_pos = self.positions.get(sym)
+            if (current_pos is None or current_pos.shares == 0) and prev_close and price >= prev_close * self._limit_up_ratio(sym, row):
+                continue
+            available_targets.append(sym)
         if not available_targets:
             return
 
-        # Total portfolio value after unwanted positions have been liquidated
         total_portfolio_value = self.cash + self._market_value(day_quotes)
         target_value_per_stock = total_portfolio_value / len(available_targets)
 
         for sym in available_targets:
             row = day_quotes[day_quotes["symbol"] == sym]
-            price = float(row.iloc[0]["close"])
-
-            # Skip if hits upper limit (cannot buy)
-            prev_close = self._prev_close(sym)
-            if prev_close and price >= prev_close * 1.095:
-                continue
+            price = float(row.iloc[0][price_col])
 
             # A-shares: lot size 100 shares
             target_shares = int(target_value_per_stock / price / 100) * 100
@@ -176,11 +192,14 @@ class BacktestEngine:
             current_shares = current_pos.shares if current_pos else 0
 
             if target_shares > current_shares:
+                prev_close = self._prev_close(sym)
+                if prev_close and price >= prev_close * self._limit_up_ratio(sym, row):
+                    continue
                 shares_to_buy = target_shares - current_shares
                 self._buy(date, sym, shares_to_buy, price)
             elif target_shares < current_shares:
                 shares_to_sell = current_shares - target_shares
-                self._sell(date, sym, shares_to_sell, price)
+                self._sell(date, sym, shares_to_sell, price, quote_row=row)
 
     def _buy(self, date: pd.Timestamp, symbol: str, shares: int, price: float) -> None:
         if shares <= 0:
@@ -209,6 +228,7 @@ class BacktestEngine:
         shares: int,
         price: float,
         force: bool = False,
+        quote_row: pd.DataFrame | None = None,
     ) -> None:
         if shares <= 0:
             return
@@ -217,10 +237,11 @@ class BacktestEngine:
             return
         shares = min(shares, pos.shares)
 
-        # Skip sell if hits lower limit (cannot sell)
+        # Skip sell if hits lower limit (cannot sell). ``force`` is kept for
+        # explicit administrative exits, not regular strategy exits.
         if not force:
             prev_close = self._prev_close(symbol)
-            if prev_close and price <= prev_close * 0.905:
+            if prev_close and price <= prev_close * self._limit_down_ratio(symbol, quote_row):
                 return
 
         exec_price = price * (1 - self.slippage)
@@ -238,15 +259,18 @@ class BacktestEngine:
         date: pd.Timestamp,
         day_quotes: pd.DataFrame,
         symbol: str,
+        price_col: str = "close",
     ) -> None:
         pos = self.positions.get(symbol)
         if pos is None or pos.shares == 0:
             return
         row = day_quotes[day_quotes["symbol"] == symbol]
-        if row.empty:
+        if row.empty or price_col not in row.columns:
             return
-        price = float(row.iloc[0]["close"])
-        self._sell(date, symbol, pos.shares, price)
+        price = float(row.iloc[0][price_col])
+        if pd.isna(price) or price <= 0:
+            return
+        self._sell(date, symbol, pos.shares, price, quote_row=row)
 
     def _record_value(self, date: pd.Timestamp, day_quotes: pd.DataFrame) -> None:
         market_value = self._market_value(day_quotes)
@@ -266,7 +290,10 @@ class BacktestEngine:
             row = day_quotes[day_quotes["symbol"] == sym]
             if not row.empty:
                 price = float(row.iloc[0]["close"])
-                market_value += pos.shares * price
+                self._last_known_price[sym] = price
+            else:
+                price = self._last_known_price.get(sym, pos.cost_basis)
+            market_value += pos.shares * price
         return market_value
 
     def _prev_close(self, symbol: str) -> float | None:
@@ -277,3 +304,29 @@ class BacktestEngine:
         if row.empty:
             return None
         return float(row.iloc[0]["close"])
+
+    @staticmethod
+    def _limit_up_ratio(symbol: str, quote_row: pd.DataFrame | None = None) -> float:
+        """Return the A-share upper-limit multiplier for a symbol."""
+        name = ""
+        if quote_row is not None and not quote_row.empty and "name" in quote_row.columns:
+            name = str(quote_row.iloc[0].get("name") or "")
+        code = symbol.split(".")[0]
+        if "ST" in name.upper():
+            return 1.045
+        if code.startswith(("300", "301", "688")):
+            return 1.195
+        return 1.095
+
+    @staticmethod
+    def _limit_down_ratio(symbol: str, quote_row: pd.DataFrame | None = None) -> float:
+        """Return the A-share lower-limit multiplier for a symbol."""
+        name = ""
+        if quote_row is not None and not quote_row.empty and "name" in quote_row.columns:
+            name = str(quote_row.iloc[0].get("name") or "")
+        code = symbol.split(".")[0]
+        if "ST" in name.upper():
+            return 0.955
+        if code.startswith(("300", "301", "688")):
+            return 0.805
+        return 0.905

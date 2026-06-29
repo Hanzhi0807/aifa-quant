@@ -155,6 +155,9 @@ class StockMCPAdapter(BaseMCPAdapter):
             "证券代码": "symbol",
             "证券简称": "name",
             "日期": "report_date",
+            "公告日期": "ann_date",
+            "披露日期": "ann_date",
+            "发布日期": "ann_date",
             "市盈率（PE，LYR）": "pe_lyr",
             "市净率(PB,最新)": "pb",
             "市净率（PB，MRQ）": "pb_mrq",
@@ -164,11 +167,16 @@ class StockMCPAdapter(BaseMCPAdapter):
             "净资产收益率ROE(摊薄,公布值)（单位：%）": "roe_diluted",
         }
         df = df.rename(columns={k: v for k, v in column_map.items() if k in df.columns})
-
+        if df.columns.duplicated().any():
+            for col in df.columns[df.columns.duplicated()].unique():
+                duplicate_values = df.loc[:, df.columns == col]
+                df[col] = duplicate_values.bfill(axis=1).iloc[:, 0]
+            df = df.loc[:, ~df.columns.duplicated()].copy()
         keep = [
             "symbol",
             "name",
             "report_date",
+            "ann_date",
             "pe_lyr",
             "pb",
             "pb_mrq",
@@ -180,6 +188,8 @@ class StockMCPAdapter(BaseMCPAdapter):
         df = df[[c for c in keep if c in df.columns]].copy()
 
         df["report_date"] = pd.to_datetime(df["report_date"], errors="coerce")
+        if "ann_date" in df.columns:
+            df["ann_date"] = pd.to_datetime(df["ann_date"], errors="coerce")
         for col in ["pe_lyr", "pb", "pb_mrq", "roe_deducted", "roe_ttm", "roe_weighted", "roe_diluted"]:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors="coerce")

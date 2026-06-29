@@ -1,6 +1,7 @@
 """Tests for backtest engine."""
 
 import pandas as pd
+import pytest
 
 from aifa_quant.backtest import BacktestEngine, compute_metrics
 from aifa_quant.backtest.engine import Position
@@ -39,3 +40,40 @@ def test_backtest_engine_simple_run():
 def test_compute_metrics_empty():
     metrics = compute_metrics(pd.DataFrame())
     assert metrics == {}
+
+class _SinglePickStrategy:
+    def generate_signals(self, features, current_date, hold_symbols=None, **kwargs):
+        day = features[features["trade_date"] == current_date].copy()
+        day["rank"] = 1
+        day["selected"] = day["symbol"] == "A"
+        return day[["symbol", "pred_score", "rank", "selected"]].rename(columns={"pred_score": "score"})
+
+
+def test_backtest_executes_signal_next_day_open():
+    engine = BacktestEngine(initial_cash=10_000.0, commission_rate=0.0, min_commission=0.0, rebalance_freq=5)
+    quotes = pd.DataFrame(
+        {
+            "trade_date": pd.to_datetime(["2024-01-01", "2024-01-02"]),
+            "symbol": ["A", "A"],
+            "open": [10.0, 20.0],
+            "high": [110.0, 26.0],
+            "low": [9.0, 19.0],
+            "close": [100.0, 25.0],
+            "volume": [1000, 1000],
+        }
+    )
+    features = pd.DataFrame(
+        {
+            "trade_date": pd.to_datetime(["2024-01-01"]),
+            "symbol": ["A"],
+            "pred_score": [1.0],
+        }
+    )
+
+    equity = engine.run(quotes, features, model=None, strategy=_SinglePickStrategy())
+
+    assert len(equity) == 2
+    assert len(engine.trades) == 1
+    trade = engine.trades[0]
+    assert trade.trade_date == pd.Timestamp("2024-01-02")
+    assert trade.price == pytest.approx(20.0)

@@ -44,6 +44,7 @@ def test_save_and_load_fundamental_data(temp_store):
         {
             "symbol": ["000001.SZ", "000001.SZ", "600519.SH"],
             "report_date": pd.to_datetime(["2024-03-31", "2024-06-30", "2024-03-31"]),
+            "ann_date": pd.to_datetime(["2024-04-30", "2024-08-31", "2024-04-28"]),
             "pe_lyr": [5.0, 5.5, 25.0],
             "pb": [1.0, 1.1, 8.0],
             "roe_ttm": [10.0, 11.0, 20.0],
@@ -55,6 +56,8 @@ def test_save_and_load_fundamental_data(temp_store):
     loaded = temp_store.load_fundamental_data(symbols=["000001.SZ"], start_date="20240101", end_date="20241231")
     assert len(loaded) == 2
     assert set(loaded["symbol"].unique()) == {"000001.SZ"}
+    assert "ann_date" in loaded.columns
+    assert pd.Timestamp(loaded["ann_date"].iloc[0]) == pd.Timestamp("2024-04-30")
 
 
 def test_save_and_load_macro_data(temp_store):

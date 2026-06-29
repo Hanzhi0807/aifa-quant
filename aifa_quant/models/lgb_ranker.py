@@ -51,13 +51,14 @@ class LGBRankerModel(BaseModel):
             eval_X = eval_X[self.feature_names].copy()
             eval_set = [(eval_X, eval_y)]
 
-        # Handle class imbalance for binary classification
+        # Handle class imbalance for binary classification without mutating self.params.
+        fit_params = self.params.copy()
         pos_count = (y == 1).sum()
         neg_count = (y == 0).sum()
         if pos_count > 0 and neg_count > 0:
-            self.params["scale_pos_weight"] = float(neg_count / pos_count)
+            fit_params["scale_pos_weight"] = float(neg_count / pos_count)
 
-        self.model = lgb.LGBMClassifier(**self.params)
+        self.model = lgb.LGBMClassifier(**fit_params)
         fit_kwargs = {}
         if eval_set:
             fit_kwargs["eval_set"] = eval_set

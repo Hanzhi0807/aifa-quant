@@ -1,8 +1,9 @@
 """Alpha101/191 style factor library.
 
 This module implements a representative subset of the WorldQuant Alpha101/191
-factors adapted for A-share daily OHLCV data. Factors are computed per symbol
-and registered in ALPHA_REGISTRY so the feature builder can iterate over them.
+factors adapted for A-share daily OHLCV data. Cross-sectional operators are
+computed across all symbols on each trade date, while time-series operators are
+computed independently per symbol.
 """
 
 from __future__ import annotations
@@ -13,70 +14,132 @@ import numpy as np
 import pandas as pd
 
 
-def _rank(series: pd.Series) -> pd.Series:
-    return series.rank(pct=True, method="average")
+def _as_series(values: pd.Series | np.ndarray, index: pd.Index) -> pd.Series:
+    if isinstance(values, pd.Series):
+        return values.reindex(index)
+    return pd.Series(values, index=index)
 
 
-def _delta(series: pd.Series, period: int) -> pd.Series:
-    return series.diff(period)
+def _rank(df: pd.DataFrame, values: pd.Series | np.ndarray) -> pd.Series:
+    """Cross-sectional percentile rank across all symbols on each trade date."""
+    series = _as_series(values, df.index)
+    return series.groupby(df["trade_date"]).rank(pct=True, method="average")
 
 
-def _delay(series: pd.Series, period: int) -> pd.Series:
-    return series.shift(period)
+def _delta(df: pd.DataFrame, values: pd.Series | np.ndarray, period: int) -> pd.Series:
+    series = _as_series(values, df.index)
+    return series.groupby(df["symbol"], group_keys=False).transform(lambda x: x.diff(period))
 
 
-def _ts_corr(x: pd.Series, y: pd.Series, window: int) -> pd.Series:
-    return x.rolling(window).corr(y)
+def _delay(df: pd.DataFrame, values: pd.Series | np.ndarray, period: int) -> pd.Series:
+    series = _as_series(values, df.index)
+    return series.groupby(df["symbol"], group_keys=False).transform(lambda x: x.shift(period))
 
 
-def _ts_cov(x: pd.Series, y: pd.Series, window: int) -> pd.Series:
-    return x.rolling(window).cov(y)
+def _ts_corr(
+    df: pd.DataFrame,
+    x: pd.Series | np.ndarray,
+    y: pd.Series | np.ndarray,
+    window: int,
+) -> pd.Series:
+    tmp = pd.DataFrame(
+        {
+            "symbol": df["symbol"],
+            "x": _as_series(x, df.index),
+            "y": _as_series(y, df.index),
+        },
+        index=df.index,
+    )
+    result = tmp.groupby("symbol", group_keys=False).apply(lambda g: g["x"].rolling(window).corr(g["y"]))
+    return result.reindex(df.index)
 
 
-def _ts_std(series: pd.Series, window: int) -> pd.Series:
-    return series.rolling(window).std()
+def _ts_cov(
+    df: pd.DataFrame,
+    x: pd.Series | np.ndarray,
+    y: pd.Series | np.ndarray,
+    window: int,
+) -> pd.Series:
+    tmp = pd.DataFrame(
+        {
+            "symbol": df["symbol"],
+            "x": _as_series(x, df.index),
+            "y": _as_series(y, df.index),
+        },
+        index=df.index,
+    )
+    result = tmp.groupby("symbol", group_keys=False).apply(lambda g: g["x"].rolling(window).cov(g["y"]))
+    return result.reindex(df.index)
 
 
-def _ts_mean(series: pd.Series, window: int) -> pd.Series:
-    return series.rolling(window).mean()
+def _ts_std(df: pd.DataFrame, values: pd.Series | np.ndarray, window: int) -> pd.Series:
+    series = _as_series(values, df.index)
+    return series.groupby(df["symbol"], group_keys=False).transform(lambda x: x.rolling(window).std())
 
 
-def _ts_sum(series: pd.Series, window: int) -> pd.Series:
-    return series.rolling(window).sum()
+def _ts_mean(df: pd.DataFrame, values: pd.Series | np.ndarray, window: int) -> pd.Series:
+    series = _as_series(values, df.index)
+    return series.groupby(df["symbol"], group_keys=False).transform(lambda x: x.rolling(window).mean())
 
 
-def _ts_min(series: pd.Series, window: int) -> pd.Series:
-    return series.rolling(window).min()
+def _ts_sum(df: pd.DataFrame, values: pd.Series | np.ndarray, window: int) -> pd.Series:
+    series = _as_series(values, df.index)
+    return series.groupby(df["symbol"], group_keys=False).transform(lambda x: x.rolling(window).sum())
 
 
-def _ts_max(series: pd.Series, window: int) -> pd.Series:
-    return series.rolling(window).max()
+def _ts_min(df: pd.DataFrame, values: pd.Series | np.ndarray, window: int) -> pd.Series:
+    series = _as_series(values, df.index)
+    return series.groupby(df["symbol"], group_keys=False).transform(lambda x: x.rolling(window).min())
 
 
-def _ts_argmax(series: pd.Series, window: int) -> pd.Series:
-    return series.rolling(window).apply(lambda x: np.argmax(x) + 1, raw=True)
+def _ts_max(df: pd.DataFrame, values: pd.Series | np.ndarray, window: int) -> pd.Series:
+    series = _as_series(values, df.index)
+    return series.groupby(df["symbol"], group_keys=False).transform(lambda x: x.rolling(window).max())
 
 
-def _ts_argmin(series: pd.Series, window: int) -> pd.Series:
-    return series.rolling(window).apply(lambda x: np.argmin(x) + 1, raw=True)
+def _ts_argmax(df: pd.DataFrame, values: pd.Series | np.ndarray, window: int) -> pd.Series:
+    series = _as_series(values, df.index)
+    return series.groupby(df["symbol"], group_keys=False).transform(
+        lambda x: x.rolling(window).apply(lambda y: np.argmax(y) + 1, raw=True)
+    )
+
+
+def _ts_argmin(df: pd.DataFrame, values: pd.Series | np.ndarray, window: int) -> pd.Series:
+    series = _as_series(values, df.index)
+    return series.groupby(df["symbol"], group_keys=False).transform(
+        lambda x: x.rolling(window).apply(lambda y: np.argmin(y) + 1, raw=True)
+    )
+
+
+def _ts_rank(df: pd.DataFrame, values: pd.Series | np.ndarray, window: int) -> pd.Series:
+    series = _as_series(values, df.index)
+    return series.groupby(df["symbol"], group_keys=False).transform(
+        lambda x: x.rolling(window).apply(lambda y: pd.Series(y).rank(pct=True).iloc[-1], raw=False)
+    )
 
 
 def _sign(series: pd.Series) -> pd.Series:
     return np.sign(series)
 
 
-def _scale(series: pd.Series) -> pd.Series:
-    return series / series.abs().sum()
+def _scale(df: pd.DataFrame, values: pd.Series | np.ndarray) -> pd.Series:
+    """Cross-sectional scale with zero-denominator protection."""
+    series = _as_series(values, df.index)
+    denom = series.abs().groupby(df["trade_date"]).transform("sum")
+    return series.div(denom).where(denom.notna() & denom.ne(0), 0.0)
 
 
 def _signed_power(series: pd.Series, exp: float) -> pd.Series:
     return np.sign(series) * (series.abs() ** exp)
 
 
-def _decay_linear(series: pd.Series, window: int) -> pd.Series:
+def _decay_linear(df: pd.DataFrame, values: pd.Series | np.ndarray, window: int) -> pd.Series:
+    series = _as_series(values, df.index)
     weights = np.arange(1, window + 1)
     weights = weights / weights.sum()
-    return series.rolling(window).apply(lambda x: np.dot(x, weights), raw=True)
+    return series.groupby(df["symbol"], group_keys=False).transform(
+        lambda x: x.rolling(window).apply(lambda y: np.dot(y, weights), raw=True)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -86,100 +149,114 @@ def _decay_linear(series: pd.Series, window: int) -> pd.Series:
 
 def alpha002(df: pd.DataFrame) -> pd.Series:
     """(-1 * correlation(rank(delta(log(volume), 2)), rank((close - open) / open), 6))"""
+    log_volume_delta = _delta(df, np.log(df["volume"].replace(0, np.nan)), 2)
+    intraday_return = (df["close"] - df["open"]) / df["open"].replace(0, np.nan)
     return -_ts_corr(
-        _rank(_delta(np.log(df["volume"].replace(0, np.nan)), 2)),
-        _rank((df["close"] - df["open"]) / df["open"].replace(0, np.nan)),
+        df,
+        _rank(df, log_volume_delta),
+        _rank(df, intraday_return),
         6,
     )
 
 
 def alpha003(df: pd.DataFrame) -> pd.Series:
     """(-1 * correlation(rank(open), rank(volume), 10))"""
-    return -_ts_corr(_rank(df["open"]), _rank(df["volume"]), 10)
+    return -_ts_corr(df, _rank(df, df["open"]), _rank(df, df["volume"]), 10)
 
 
 def alpha004(df: pd.DataFrame) -> pd.Series:
     """(-1 * Ts_Rank(rank(low), 9))"""
-    return -_rank(df["low"]).rolling(9).apply(lambda x: x.rank(pct=True).iloc[-1], raw=False)
+    return -_ts_rank(df, _rank(df, df["low"]), 9)
 
 
 def alpha005(df: pd.DataFrame) -> pd.Series:
     """(rank(open - sum(vwap, 10) / 10) * (-1 * abs(rank(close - vwap))))"""
-    vwap = (df["close"] * df["volume"]).cumsum() / df["volume"].replace(0, np.nan).cumsum()
-    return _rank(df["open"] - _ts_mean(vwap, 10)) * (-1 * (_rank(df["close"] - vwap).abs()))
+    if "amount" in df.columns:
+        vwap = df["amount"] / df["volume"].replace(0, np.nan)
+    else:
+        vwap = (df["open"] + df["high"] + df["low"] + df["close"]) / 4
+    vwap_ma10 = _ts_mean(df, vwap, 10)
+    return -_rank(df, df["open"] - vwap_ma10) * _rank(df, (df["close"] - vwap).abs())
 
 
 def alpha006(df: pd.DataFrame) -> pd.Series:
     """(-1 * correlation(open, volume, 10))"""
-    return -_ts_corr(df["open"], df["volume"], 10)
+    return -_ts_corr(df, df["open"], df["volume"], 10)
 
 
 def alpha008(df: pd.DataFrame) -> pd.Series:
     """-rank(delta(close, 5))"""
-    return -_rank(_delta(df["close"], 5))
+    return -_rank(df, _delta(df, df["close"], 5))
 
 
 def alpha009(df: pd.DataFrame) -> pd.Series:
     """Simplified: -rank((close - open) / (high - low + 1e-6))"""
-    return -_rank((df["close"] - df["open"]) / (df["high"] - df["low"] + 1e-6))
+    return -_rank(df, (df["close"] - df["open"]) / (df["high"] - df["low"] + 1e-6))
 
 
 def alpha012(df: pd.DataFrame) -> pd.Series:
     """sign(delta(volume, 1)) * (-1 * delta(close, 1))"""
-    return _sign(_delta(df["volume"], 1)) * (-1 * _delta(df["close"], 1))
+    return _sign(_delta(df, df["volume"], 1)) * (-1 * _delta(df, df["close"], 1))
 
 
 def alpha014(df: pd.DataFrame) -> pd.Series:
     """(-1 * rank(correlation(open, volume, 10))) * rank(close - open)"""
-    return -_rank(_ts_corr(df["open"], df["volume"], 10)) * _rank(df["close"] - df["open"])
+    return -_rank(df, _ts_corr(df, df["open"], df["volume"], 10)) * _rank(df, df["close"] - df["open"])
 
 
 def alpha015(df: pd.DataFrame) -> pd.Series:
     """-sum(rank(correlation(rank(high), rank(volume), 3)), 3)"""
-    return -_ts_sum(_rank(_ts_corr(_rank(df["high"]), _rank(df["volume"]), 3)), 3)
+    corr = _ts_corr(df, _rank(df, df["high"]), _rank(df, df["volume"]), 3)
+    return -_ts_sum(df, _rank(df, corr), 3)
 
 
 def alpha018(df: pd.DataFrame) -> pd.Series:
     """-rank((open - ts_sum(open, 5) / 5) * (close - open))"""
-    return -_rank((df["open"] - _ts_mean(df["open"], 5)) * (df["close"] - df["open"]))
+    return -_rank(df, (df["open"] - _ts_mean(df, df["open"], 5)) * (df["close"] - df["open"]))
 
 
 def alpha020(df: pd.DataFrame) -> pd.Series:
     """-rank(open - high) * rank(open - close)"""
-    return -_rank(df["open"] - df["high"]) * _rank(df["open"] - df["close"])
+    return -_rank(df, df["open"] - df["high"]) * _rank(df, df["open"] - df["close"])
 
 
 def alpha024(df: pd.DataFrame) -> pd.Series:
     """Simplified: rank(close - open) / (high - low + 1e-6)"""
-    return _rank(df["close"] - df["open"]) / (df["high"] - df["low"] + 1e-6)
+    return _rank(df, df["close"] - df["open"]) / (df["high"] - df["low"] + 1e-6)
 
 
 def alpha032(df: pd.DataFrame) -> pd.Series:
     """scale(((close - open) / (high - low + 1e-6)) * volume)"""
-    return _scale(((df["close"] - df["open"]) / (df["high"] - df["low"] + 1e-6)) * df["volume"])
+    return _scale(df, ((df["close"] - df["open"]) / (df["high"] - df["low"] + 1e-6)) * df["volume"])
 
 
 def alpha034(df: pd.DataFrame) -> pd.Series:
     """rank((close - ts_mean(close, 12)) / close)"""
-    return _rank((df["close"] - _ts_mean(df["close"], 12)) / df["close"].replace(0, np.nan))
+    return _rank(df, (df["close"] - _ts_mean(df, df["close"], 12)) / df["close"].replace(0, np.nan))
 
 
 def alpha041(df: pd.DataFrame) -> pd.Series:
     """rank(power(high * low, 0.5) - close)"""
-    return _rank(np.power(df["high"] * df["low"], 0.5) - df["close"])
+    return _rank(df, np.power(df["high"] * df["low"], 0.5) - df["close"])
 
 
 def alpha043(df: pd.DataFrame) -> pd.Series:
-    """Simplified: rank(close - open) / (high - low + 1e-6)"""
-    return _rank(df["close"] - df["open"]) / (df["high"] - df["low"] + 1e-6)
+    """Alpha191#43: 6-day signed volume sum."""
+    prev_close = _delay(df, df["close"], 1)
+    signed_volume = np.where(
+        df["close"] > prev_close,
+        df["volume"],
+        np.where(df["close"] < prev_close, -df["volume"], 0),
+    )
+    return _ts_sum(df, pd.Series(signed_volume, index=df.index), 6)
 
 
 def alpha046(df: pd.DataFrame) -> pd.Series:
     """(ts_mean(close, 20) < close) ? (-1 * ts_delta(close, 2)) : 0"""
     return pd.Series(
         np.where(
-            _ts_mean(df["close"], 20) < df["close"],
-            -1 * _delta(df["close"], 2),
+            _ts_mean(df, df["close"], 20) < df["close"],
+            -1 * _delta(df, df["close"], 2),
             0.0,
         ),
         index=df.index,
@@ -188,21 +265,25 @@ def alpha046(df: pd.DataFrame) -> pd.Series:
 
 def alpha050(df: pd.DataFrame) -> pd.Series:
     """Simplified: -ts_sum(rank(correlation(rank(high), rank(volume), 5)), 5)"""
-    return -_ts_sum(_rank(_ts_corr(_rank(df["high"]), _rank(df["volume"]), 5)), 5)
+    corr = _ts_corr(df, _rank(df, df["high"]), _rank(df, df["volume"]), 5)
+    return -_ts_sum(df, _rank(df, corr), 5)
 
 
 def alpha054(df: pd.DataFrame) -> pd.Series:
     """(-1 * rank(stddev(abs(close - open), 10) + (close - open)) * ts_corr(close, open, 10))"""
     return (
         -1
-        * _rank(_ts_std((df["close"] - df["open"]).abs(), 10) + (df["close"] - df["open"]))
-        * _ts_corr(df["close"], df["open"], 10)
+        * _rank(df, _ts_std(df, (df["close"] - df["open"]).abs(), 10) + (df["close"] - df["open"]))
+        * _ts_corr(df, df["close"], df["open"], 10)
     )
 
 
 def alpha060(df: pd.DataFrame) -> pd.Series:
     """scale(((close - ts_min(low, 9)) / (ts_max(high, 9) - ts_min(low, 9) + 1e-6)) * 100)"""
-    return _scale((df["close"] - _ts_min(df["low"], 9)) / (_ts_max(df["high"], 9) - _ts_min(df["low"], 9) + 1e-6))
+    return _scale(
+        df,
+        (df["close"] - _ts_min(df, df["low"], 9)) / (_ts_max(df, df["high"], 9) - _ts_min(df, df["low"], 9) + 1e-6),
+    )
 
 
 def alpha101(df: pd.DataFrame) -> pd.Series:
@@ -244,29 +325,20 @@ def compute_alpha_factors(df: pd.DataFrame, selected: list[str] | None = None) -
         selected: Optional list of alpha names to compute. If None, compute all.
 
     Returns:
-        DataFrame with the same index plus alpha factor columns.
+        DataFrame with the same rows plus alpha factor columns.
     """
     df = df.copy()
     selected = selected or list(ALPHA_REGISTRY.keys())
-
-    def _add_factor(sub_df: pd.DataFrame, factor_func: Callable, factor_name: str) -> pd.DataFrame:
-        sub_df = sub_df.copy()
-        sub_df[factor_name] = factor_func(sub_df)
-        return sub_df
+    df["_alpha_input_order"] = np.arange(len(df))
+    df["trade_date"] = pd.to_datetime(df["trade_date"])
+    df = df.sort_values(["symbol", "trade_date"]).copy()
 
     for name in selected:
         if name not in ALPHA_REGISTRY:
             continue
         _, func = ALPHA_REGISTRY[name]
-        # pandas 3.x strips the grouping column with group_keys=False; recover it via reset_index.
-        df = df.groupby("symbol").apply(
-            lambda sub, f=func, n=name: _add_factor(sub, f, n),
-            include_groups=False,
-        )
-        df = df.reset_index()
-        if "level_1" in df.columns:
-            df = df.drop(columns=["level_1"])
-    return df
+        df[name] = func(df)
+    return df.sort_values("_alpha_input_order").drop(columns=["_alpha_input_order"]).reset_index(drop=True)
 
 
 def list_alpha_factors() -> dict[str, str]:

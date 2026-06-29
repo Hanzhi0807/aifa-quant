@@ -46,12 +46,13 @@ class XGBRankerModel(BaseModel):
         self.feature_names = [c for c in feature_names if c in X.columns]
         X = X[self.feature_names].copy()
 
+        fit_params = self.params.copy()
         pos_count = (y == 1).sum()
         neg_count = (y == 0).sum()
         if pos_count > 0 and neg_count > 0:
-            self.params["scale_pos_weight"] = float(neg_count / pos_count)
+            fit_params["scale_pos_weight"] = float(neg_count / pos_count)
 
-        self.model = xgb.XGBClassifier(**self.params)
+        self.model = xgb.XGBClassifier(**fit_params)
 
         fit_kwargs: dict = {"verbose": False}
         if eval_X is not None and eval_y is not None:

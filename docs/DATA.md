@@ -18,6 +18,8 @@
   - 宏观指标（CPI、PMI、M2 同比）
   - 新闻情绪数据
 
+- **可用时点保护**：基本面合并优先使用公告日 `ann_date`；缺少公告日时使用 `report_date + 90 天` 的保守延迟。宏观数据默认使用指标日期后 30 天才对日线可见，避免回测提前使用未发布数据。
+
 ---
 
 ## 2. 本地优先的数据工作流
@@ -117,7 +119,7 @@ python -m aifa_quant.cli.main data-update \
 |------|------|----------|
 | `daily_quotes` | 日线行情（股票 + 指数） | `symbol`, `trade_date`, `open`, `high`, `low`, `close`, `volume`, `amount` |
 | `stock_universe` | 股票代码与名称 | `symbol`, `name`, `updated_at` |
-| `fundamental_data` | 基本面指标 | `symbol`, `trade_date`, `pe`, `pb`, `roe` 等 |
+| `fundamental_data` | 基本面指标 | `symbol`, `report_date`, `ann_date`, `pe_lyr`, `pb`, `roe_*` 等 |
 | `macro_data` | 宏观指标 | `indicator_name`, `trade_date`, `value` |
 | `paper_positions` | 模拟交易当前持仓 | `profile`, `symbol`, `shares`, `cost_basis` |
 | `paper_orders` | 模拟交易历史订单 | `profile`, `order_id`, `trade_date`, `symbol`, `side`, `quantity`, `fill_price` |
@@ -158,5 +160,6 @@ cp backup/aifa_quant_YYYYMMDD.duckdb data_store/aifa_quant.duckdb
 ## 5. 注意事项
 
 - **成分股为当前最新**：AkShare 返回的是当前最新成分股，不是历史 point-in-time 成分股，因此长周期回测存在幸存者偏差。
+- **基本面/宏观不按原始日期直接可见**：财务指标按公告日或保守延迟合并，宏观指标按固定发布延迟合并；如后续数据源提供真实发布日期，应优先使用真实发布日期。
 - **日线从 2025-01-01 起**：2024 年及以前的数据不再通过默认刷新脚本补充，旧数据如需使用请手动指定 `--start`。
 - **DuckDB 并发**：Web 服务每次查询会新建只读连接并正确关闭；但如果 dev server 进程异常未退出，仍可能锁库。Windows 下可用任务管理器结束对应 Node/Python 进程。

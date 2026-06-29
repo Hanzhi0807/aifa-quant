@@ -66,8 +66,15 @@ class LGBLambdaRankModel(BaseModel):
         if groups is None:
             raise ValueError("LambdaRank requires groups (e.g. trade_date)")
 
-        # Sort by group to satisfy LightGBM's requirement
-        df = pd.DataFrame({"y": y, "group": groups}).join(X)
+        # Sort by group to satisfy LightGBM's requirement. Reset indexes before
+        # concatenation so y/groups cannot be misaligned with X by index labels.
+        df = pd.concat(
+            [
+                pd.DataFrame({"y": y.reset_index(drop=True), "group": groups.reset_index(drop=True)}),
+                X.reset_index(drop=True),
+            ],
+            axis=1,
+        )
         df = df.sort_values("group").reset_index(drop=True)
         y_sorted = df["y"].astype(int)
         group_sizes = df.groupby("group").size().values

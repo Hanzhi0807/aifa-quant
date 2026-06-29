@@ -9,7 +9,15 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from .lgb_lambdarank import LGBLambdaRankModel
 from .lgb_ranker import LGBRankerModel
+
+MODEL_CLASS_MAP = {
+    "lgb_classifier": LGBRankerModel,
+    "binary": LGBRankerModel,
+    "lgb_lambdarank": LGBLambdaRankModel,
+    "lambdarank": LGBLambdaRankModel,
+}
 
 
 class EnsembleModel:
@@ -36,14 +44,19 @@ class EnsembleModel:
         method = config.get("method", "weighted_mean")
         models: list[tuple[Any, float]] = []
         for item in config.get("models", []):
-            name = item["name"]
+            name = item.get("name", item.get("path", ""))
             weight = float(item.get("weight", 1.0))
             model_path = Path(item["path"]) if "path" in item else None
             if model_path is None and registry_dir is not None:
                 model_path = registry_dir / name
             if model_path is None or not model_path.exists():
                 raise FileNotFoundError(f"Ensemble model not found: {name} ({model_path})")
-            model = LGBRankerModel()
+
+            model_type = item.get("type", "lgb_classifier")
+            model_cls = MODEL_CLASS_MAP.get(model_type)
+            if model_cls is None:
+                raise ValueError(f"Unsupported ensemble model type: {model_type}")
+            model = model_cls()
             model.load(str(model_path))
             models.append((model, weight))
         if not models:
@@ -84,22 +97,30 @@ class EnsembleModel:
         if self.method == "median":
             return np.nanmedian(scores, axis=0)
         if self.method == "rank_mean":
-            ranks = np.apply_along_axis(lambda s: pd.Series(s).rank(pct=True).values, 0, scores)
+            ranks = np.apply_along_axis(lambda s: pd.Series(s).rank(pct=True).values, 1, scores)
             return np.nanmean(ranks, axis=0)
-        # weighted_mean
+
         weights_arr = np.array(weights, dtype=float)
+        if weights_arr.sum() == 0:
+            weights_arr = np.ones_like(weights_arr)
         weights_arr = weights_arr / weights_arr.sum()
-        weighted = scores * weights_arr[:, np.newaxis]
-        return np.nansum(weighted, axis=0)
+        mask = ~np.isnan(scores)
+        effective_weights = np.where(mask, weights_arr[:, np.newaxis], 0.0)
+        weight_sums = effective_weights.sum(axis=0)
+        result = np.zeros(scores.shape[1], dtype=float)
+        valid = weight_sums > 0
+        result[valid] = np.nansum(scores[:, valid] * effective_weights[:, valid], axis=0) / weight_sums[valid]
+        return result
 
     def save(self, path: str | Path) -> None:
         raise NotImplementedError("Use the underlying sub-models; ensemble config is separate")
 
+    @property
     def feature_importance(self) -> dict[str, float] | None:
         agg: dict[str, float] = {}
         total_weight = 0.0
         for model, weight in self.models:
-            fi = model.feature_importance()
+            fi = model.feature_importance
             if fi is None:
                 continue
             for name, value in fi.items():

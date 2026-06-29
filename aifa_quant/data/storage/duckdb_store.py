@@ -31,7 +31,7 @@ class DuckDBStore:
 
     def _init_tables(self, conn: duckdb.DuckDBPyConnection) -> None:
         """Create core tables if they do not exist."""
-        # Add profile column to existing tables (safe migration)
+        # Add columns to existing tables (safe migrations)
         for table in ["paper_positions", "paper_orders", "paper_nav"]:
             try:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN profile VARCHAR DEFAULT 'balanced'")
@@ -68,6 +68,7 @@ class DuckDBStore:
             CREATE TABLE IF NOT EXISTS fundamental_data (
                 symbol VARCHAR NOT NULL,
                 report_date DATE NOT NULL,
+                ann_date DATE,
                 name VARCHAR,
                 pe_lyr DOUBLE,
                 pb DOUBLE,
@@ -80,6 +81,11 @@ class DuckDBStore:
                 PRIMARY KEY (symbol, report_date)
             );
         """)
+
+        try:
+            conn.execute("ALTER TABLE fundamental_data ADD COLUMN ann_date DATE")
+        except Exception:
+            pass  # column already exists or table does not exist yet
 
         conn.execute("""
             CREATE TABLE IF NOT EXISTS macro_data (
@@ -204,6 +210,10 @@ class DuckDBStore:
             return 0
         df = df.copy()
         df["report_date"] = pd.to_datetime(df["report_date"]).dt.date
+        if "ann_date" in df.columns:
+            df["ann_date"] = pd.to_datetime(df["ann_date"], errors="coerce").dt.date
+        else:
+            df["ann_date"] = None
         if "name" not in df.columns:
             df["name"] = None
         numeric_cols = ["pe_lyr", "pb", "pb_mrq", "roe_deducted", "roe_ttm", "roe_weighted", "roe_diluted"]
@@ -214,7 +224,7 @@ class DuckDBStore:
         self.conn.register("tmp_fundamental", df)
         self.conn.execute("""
             INSERT OR REPLACE INTO fundamental_data
-            SELECT symbol, report_date, name, pe_lyr, pb, pb_mrq,
+            SELECT symbol, report_date, ann_date, name, pe_lyr, pb, pb_mrq,
                    roe_deducted, roe_ttm, roe_weighted, roe_diluted, CURRENT_TIMESTAMP
             FROM tmp_fundamental;
         """)

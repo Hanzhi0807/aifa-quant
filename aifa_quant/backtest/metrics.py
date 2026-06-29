@@ -23,7 +23,7 @@ def compute_metrics(
 
     total_return = df["total_value"].iloc[-1] / df["total_value"].iloc[0] - 1
     n_days = len(df)
-    annual_return = (1 + total_return) ** (252 / n_days) - 1 if n_days > 0 else 0.0
+    annual_return = (1 + total_return) ** (252 / n_days) - 1 if n_days >= 5 else 0.0
 
     # Standard excess-return Sharpe ratio
     excess_returns = returns - risk_free_rate / 252
