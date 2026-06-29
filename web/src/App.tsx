@@ -6,6 +6,7 @@ import Backtest from "./pages/Backtest";
 import Models from "./pages/Models";
 import Data from "./pages/Data";
 import Metrics from "./pages/Metrics";
+import Reports from "./pages/Reports";
 
 export default function App() {
   return (
@@ -18,6 +19,7 @@ export default function App() {
         <Route path="/models" element={<Models />} />
         <Route path="/data" element={<Data />} />
         <Route path="/metrics" element={<Metrics />} />
+        <Route path="/reports" element={<Reports />} />
       </Routes>
     </div>
   );

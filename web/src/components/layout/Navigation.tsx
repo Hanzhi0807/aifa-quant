@@ -5,6 +5,7 @@ const navItems = [
   { label: "首页", path: "/" },
   { label: "回测 / 绩效", path: "/backtest" },
   { label: "数据中心", path: "/data" },
+  { label: "选股报告", path: "/reports" },
 ];
 
 export default function Navigation() {

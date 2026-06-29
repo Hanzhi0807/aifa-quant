@@ -14,6 +14,7 @@ import { strategiesRouter } from "./routers/strategies";
 import { ordersRouter } from "./routers/orders";
 import { factorAnalysisRouter } from "./routers/factorAnalysis";
 import { shapRouter } from "./routers/shap";
+import { reportsRouter } from "./routers/reports";
 
 export const appRouter = createRouter({
   ping: publicQuery.query(() => ({ ok: true, ts: Date.now() })),
@@ -32,6 +33,7 @@ export const appRouter = createRouter({
   orders: ordersRouter,
   factorAnalysis: factorAnalysisRouter,
   shap: shapRouter,
+  reports: reportsRouter,
 });
 
 export type AppRouter = typeof appRouter;
