@@ -45,4 +45,6 @@ class TopKDropoutStrategy(BaseStrategy):
         day_df["selected"] = (day_df["is_held"] & (day_df["rank"] <= self.dropout_threshold)) | (
             ~day_df["is_held"] & (day_df["rank"] <= self.top_k)
         )
+        selected_idx = day_df[day_df["selected"]].nsmallest(self.top_k, "rank").index
+        day_df["selected"] = day_df.index.isin(selected_idx)
         return day_df[["symbol", "pred_score", "rank", "selected"]].rename(columns={"pred_score": "score"})

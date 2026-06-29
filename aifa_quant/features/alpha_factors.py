@@ -51,6 +51,8 @@ def _ts_corr(
         index=df.index,
     )
     result = tmp.groupby("symbol", group_keys=False).apply(lambda g: g["x"].rolling(window).corr(g["y"]))
+    if isinstance(result.index, pd.MultiIndex):
+        result = result.droplevel(0)
     return result.reindex(df.index)
 
 

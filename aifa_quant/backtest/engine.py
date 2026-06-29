@@ -270,7 +270,7 @@ class BacktestEngine:
         price = float(row.iloc[0][price_col])
         if pd.isna(price) or price <= 0:
             return
-        self._sell(date, symbol, pos.shares, price, quote_row=row)
+        self._sell(date, symbol, pos.shares, price, force=True, quote_row=row)
 
     def _record_value(self, date: pd.Timestamp, day_quotes: pd.DataFrame) -> None:
         market_value = self._market_value(day_quotes)
