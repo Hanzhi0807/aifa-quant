@@ -16,10 +16,10 @@ AifaQuant 是一个**本地优先的 A股 AI 量化研究与回测框架**，覆
 ## 核心特性
 
 - **本地数据优先**：所有市场数据和模拟交易状态保存在本地 DuckDB，首次部署拉取，之后每日增量更新，**不提交 GitHub**。
-- **多数据源**：默认 [AkShare](https://www.akshare.xyz/)（免费，无需 token）；可选 [Tushare Pro](https://tushare.pro/)（需 token）；基本面/宏观/情绪可选同花顺 iFind MCP。
+- **多数据源**：默认 [AkShare](https://www.akshare.xyz/)（免费，无需 token）；可选 [Tushare Pro](https://tushare.pro/)（需 token）。如需商业基本面、宏观或资讯数据，可自行接入 iFinD 等数据服务。
 - **股票池**：沪深 300 + 中证 500 + 中证 1000 合并选股池，约 **1800 只** A股。
 - **时间范围**：日线默认从 **2025-01-01** 起增量更新。
-- **因子工程**：技术指标、Alpha101/191 风格因子、基本面（PE/PB/ROE）、宏观（CPI/PMI/M2）、情绪（iFind / 东方财富免费源）、高相关性剔除。
+- **因子工程**：技术指标、Alpha101/191 风格因子、基本面（PE/PB/ROE）、宏观（CPI/PMI/M2）、情绪数据、高相关性剔除。
 - **模型**：LightGBM 二分类 / LambdaRank 排序 / Ensemble 集成 / XGBoost。
 - **策略风格**：5 种投资者偏好 profile（激进 / 均衡 / 稳健 / 成长 / 价值），通过 `factor_weights` 让不同策略选出不同股票。
 - **风控**：ATR 三层止损止盈（止损、止盈、单日暴跌、利润回撤），仓位 sizing 为 `target_risk / (N × ATR)`。
@@ -53,7 +53,7 @@ AifaQuant 是一个**本地优先的 A股 AI 量化研究与回测框架**，覆
 > 2. 确认已安装 Python 3.10、3.11 或 3.12。
 > 3. 创建虚拟环境 `.venv`：Windows 运行 `python -m venv .venv` 并激活 `.venv\Scripts\activate`；macOS/Linux 运行 `python3 -m venv .venv` 并激活 `source .venv/bin/activate`。
 > 4. 安装依赖：`pip install -r requirements.txt`。
-> 5. 复制 `.env.example` 为 `.env`。如果只想使用免费数据，iFind token 可以暂时留空。
+> 5. 复制 `.env.example` 为 `.env`。如果只想使用免费数据，外部数据源 token 可以暂时留空。
 > 6. 运行测试确认环境正常：`pytest tests/ -q`。
 > 7. 首次拉取数据：`python scripts/daily_refresh.py --force --skip-paper-trade`。
 > 8. 查看数据概况：`python -m aifa_quant.cli.main db-info`。
@@ -79,7 +79,7 @@ python -m venv .venv
 # 安装依赖
 pip install -r requirements.txt
 
-# 复制并编辑 .env（iFind token 可选）
+# 复制并编辑 .env（外部数据源 token 可选）
 cp .env.example .env
 ```
 
@@ -168,14 +168,13 @@ python -m aifa_quant.cli.main explain \
 
 常用参数：
 
-- `--source {akshare,tushare,ifind}`：数据源，默认 `akshare`。
-- `--cache-only`：只使用 DuckDB 缓存，不调用 iFind。
-- `--no-sentiment`：关闭新闻情绪因子（iFind news MCP 当前配额紧张，建议关闭）。
+- `--source {akshare,tushare}`：数据源，默认 `akshare`。
+- `--cache-only`：只使用 DuckDB 缓存，不调用外部数据源。
+- `--no-sentiment`：关闭新闻情绪因子。
 - `--sentiment-source free`：使用东方财富 / AkShare 免费情绪数据。
 - `--rolling`：滚动窗口训练，避免未来函数。
 - `--profile {aggressive,balanced,conservative,growth,value}`：指定投资者偏好 profile。
 - `--all-profiles`：依次运行所有 profile。
-- `--yes`：跳过 iFind 使用确认。
 
 ---
 
@@ -289,7 +288,6 @@ docker compose up --build -d
 
 ## 注意事项
 
-- **iFind MCP 额度紧张**：建议日常回测/训练/模拟交易都加 `--cache-only`，避免意外调用。
 - **情绪因子默认关闭**：需要时可使用 `--sentiment-source free` 通过东方财富/AkShare 获取免费情绪数据。
 - **成分股非历史真实**：AkShare 返回当前最新成分股，非 point-in-time，长周期回测存在幸存者偏差。
 - **模型需要重训**：现有模型基于沪深 300 训练，扩大到中证 500/1000 后建议用新 universe 重新训练。
