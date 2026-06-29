@@ -284,7 +284,7 @@ NODE_ENV=production node dist/boot.js
 **功能**：
 - Supabase Auth 邮箱登录；前端不开放注册，访问权限由 Supabase RLS + `allowed_emails` 白名单控制；
 - 5 种策略 profile 一键切换（激进 / 均衡 / 稳健 / 价值 / 成长）；
-- 每日 Top 50 信号排名 + 当日持仓推荐卡片；
+- 每日当前持仓信号排名（按持仓市值）+ 当日持仓推荐卡片；
 - Vercel 部署，可绑定仓库自动部署或手动部署。
 
 **本地开发**：

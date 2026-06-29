@@ -194,7 +194,7 @@ export function Dashboard({ user }: { user: User }) {
       <section>
         <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
           <span className="w-2 h-2 bg-blue-400 rounded-full"></span>
-          全市场信号排名 (Top 50)
+          当前持仓信号排名
         </h2>
         {signals.length === 0 ? (
           <div className="bg-slate-800 rounded-xl p-8 text-center text-slate-400">
@@ -208,7 +208,7 @@ export function Dashboard({ user }: { user: User }) {
                   <th className="px-4 py-3 text-left">排名</th>
                   <th className="px-4 py-3 text-left">代码</th>
                   <th className="px-4 py-3 text-left">名称</th>
-                  <th className="px-4 py-3 text-right">得分</th>
+                  <th className="px-4 py-3 text-right">市值得分</th>
                 </tr>
               </thead>
               <tbody>

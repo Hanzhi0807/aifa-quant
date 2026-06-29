@@ -35,3 +35,7 @@ Deploy this folder to Vercel with:
 - Output directory: `dist`
 
 Only set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in Vercel. Never expose `SUPABASE_SERVICE_ROLE_KEY` to the frontend.
+
+## Data Semantics
+
+The signal table shows the current paper-trading holdings ordered by market value, not a full-market prediction universe.

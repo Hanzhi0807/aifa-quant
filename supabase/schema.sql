@@ -39,6 +39,25 @@ create index if not exists daily_signals_profile_date_rank_idx
 
 create index if not exists portfolio_profile_date_weight_idx
     on public.portfolio (profile, trade_date desc, weight desc);
+create or replace function public.set_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+    new.updated_at = now();
+    return new;
+end;
+$$;
+
+drop trigger if exists set_daily_signals_updated_at on public.daily_signals;
+create trigger set_daily_signals_updated_at
+before update on public.daily_signals
+for each row execute function public.set_updated_at();
+
+drop trigger if exists set_portfolio_updated_at on public.portfolio;
+create trigger set_portfolio_updated_at
+before update on public.portfolio
+for each row execute function public.set_updated_at();
 
 create or replace function public.is_allowed_dashboard_user()
 returns boolean

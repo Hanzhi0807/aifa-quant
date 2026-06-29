@@ -63,33 +63,44 @@ def latest_trade_date(store: DuckDBStore, profile: str) -> str:
     return pd.to_datetime(value).strftime("%Y-%m-%d")
 
 
-def load_positions_from_duckdb(store: DuckDBStore, profile: str) -> pd.DataFrame:
-    """Load current paper positions from DuckDB."""
+def load_positions_from_duckdb(store: DuckDBStore, profile: str, trade_date: str) -> pd.DataFrame:
+    """Load current paper positions ordered by current market value."""
     cols = table_columns(store, "paper_positions")
     has_profile = "profile" in cols
 
     if has_profile:
         df = store.conn.execute(
             """
-            SELECT p.symbol, p.shares, p.cost_basis,
-                   COALESCE(u.name, p.symbol) AS name
+            SELECT p.symbol,
+                   p.shares,
+                   p.cost_basis,
+                   COALESCE(u.name, p.symbol) AS name,
+                   COALESCE(q.close, p.cost_basis) AS last_price,
+                   p.shares * COALESCE(q.close, p.cost_basis) AS market_value
             FROM paper_positions p
             LEFT JOIN stock_universe u ON p.symbol = u.symbol
+            LEFT JOIN daily_quotes q ON p.symbol = q.symbol AND q.trade_date = ?
             WHERE p.profile = ? AND p.shares > 0
-            ORDER BY p.shares DESC
+            ORDER BY market_value DESC, p.symbol
             """,
-            [profile],
+            [trade_date, profile],
         ).fetchdf()
     else:
         df = store.conn.execute(
             """
-            SELECT p.symbol, p.shares, p.cost_basis,
-                   COALESCE(u.name, p.symbol) AS name
+            SELECT p.symbol,
+                   p.shares,
+                   p.cost_basis,
+                   COALESCE(u.name, p.symbol) AS name,
+                   COALESCE(q.close, p.cost_basis) AS last_price,
+                   p.shares * COALESCE(q.close, p.cost_basis) AS market_value
             FROM paper_positions p
             LEFT JOIN stock_universe u ON p.symbol = u.symbol
+            LEFT JOIN daily_quotes q ON p.symbol = q.symbol AND q.trade_date = ?
             WHERE p.shares > 0
-            ORDER BY p.shares DESC
-            """
+            ORDER BY market_value DESC, p.symbol
+            """,
+            [trade_date],
         ).fetchdf()
     return df
 
@@ -125,21 +136,28 @@ def load_recent_orders(store: DuckDBStore, profile: str, days: int = 5) -> pd.Da
     return df
 
 
+def clear_cloud_snapshot(client, trade_date: str, profile: str) -> None:
+    """Remove stale rows for a profile/date before writing a fresh snapshot."""
+    for table in ("daily_signals", "portfolio"):
+        client.table(table).delete().eq("trade_date", trade_date).eq("profile", profile).execute()
+
+
 def push_signals(client, positions: pd.DataFrame, trade_date: str, profile: str) -> None:
     """Push current positions as daily signals."""
     if positions.empty:
         print(f"[{profile}] No positions to push as signals")
         return
 
-    n = len(positions)
+    max_market_value = float(positions["market_value"].max()) if "market_value" in positions else 0.0
     records = []
     for i, (_, row) in enumerate(positions.iterrows(), 1):
+        market_value = float(row.get("market_value") or 0.0)
         records.append(
             {
                 "trade_date": trade_date,
                 "symbol": row["symbol"],
                 "name": row["name"] if pd.notna(row.get("name")) else "",
-                "score": round(1.0 - (i - 1) / max(n, 1), 4),
+                "score": round(market_value / max_market_value, 4) if max_market_value > 0 else 0.0,
                 "rank": i,
                 "profile": profile,
             }
@@ -155,17 +173,19 @@ def push_portfolio(client, positions: pd.DataFrame, trade_date: str, profile: st
         print(f"[{profile}] No positions to push as portfolio")
         return
 
-    n = len(positions)
+    total_market_value = float(positions["market_value"].sum()) if "market_value" in positions else 0.0
     records = []
     for _, row in positions.iterrows():
+        market_value = float(row.get("market_value") or 0.0)
+        last_price = float(row.get("last_price") or row["cost_basis"])
         records.append(
             {
                 "trade_date": trade_date,
                 "symbol": row["symbol"],
                 "name": row["name"] if pd.notna(row.get("name")) else "",
                 "action": "hold",
-                "weight": round(1.0 / n, 4),
-                "reason": f"持仓 {int(row['shares'])} 股 | 成本 {row['cost_basis']:.2f}",
+                "weight": round(market_value / total_market_value, 4) if total_market_value > 0 else 0.0,
+                "reason": f"持仓 {int(row['shares'])} 股 | 最新价 {last_price:.2f} | 市值 {market_value:.2f}",
                 "profile": profile,
             }
         )
@@ -191,9 +211,10 @@ def main(argv: list[str] | None = None) -> None:
     pushed = 0
     for profile in profiles:
         trade_date = latest_trade_date(store, profile)
-        positions = load_positions_from_duckdb(store, profile)
+        positions = load_positions_from_duckdb(store, profile, trade_date)
+        clear_cloud_snapshot(client, trade_date, profile)
         if positions.empty:
-            print(f"[{profile}] No positions found, skipping.")
+            print(f"[{profile}] No positions found; cleared cloud snapshot for {trade_date}.")
             continue
         print(f"[{profile}] Found {len(positions)} positions for {trade_date}")
         push_signals(client, positions, trade_date, profile)
