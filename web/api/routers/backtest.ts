@@ -1,4 +1,4 @@
-import { createRouter, publicQuery } from "../middleware";
+import { createRouter, protectedQuery } from "../middleware";
 import { getDataStorePath } from "../queries/duckdb";
 import { readdir, readFile } from "fs/promises";
 import { join } from "path";
@@ -75,7 +75,7 @@ async function listBacktestRuns(): Promise<BacktestRun[]> {
 }
 
 export const backtestRouter = createRouter({
-  list: publicQuery.query(async () => {
+  list: protectedQuery.query(async () => {
     return listBacktestRuns();
   }),
 });

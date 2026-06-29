@@ -1,24 +1,25 @@
 import { z } from "zod";
-import { createRouter, publicQuery } from "../middleware";
+import { createRouter, protectedQuery } from "../middleware";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import { getDataStorePath } from "../queries/duckdb";
 import { readFile } from "fs/promises";
 import { join } from "path";
+import { env } from "../lib/env";
 
 const execFileAsync = promisify(execFile);
 
 const BacktestInput = z.object({
-  start: z.string().default("20240101"),
-  end: z.string().default("20241231"),
-  topK: z.number().int().default(5),
-  freq: z.number().int().default(5),
+  start: z.string().regex(/^\d{8}$/).default("20240101"),
+  end: z.string().regex(/^\d{8}$/).default("20241231"),
+  topK: z.number().int().min(1).max(50).default(5),
+  freq: z.number().int().min(1).max(60).default(5),
   rolling: z.boolean().default(false),
-  benchmark: z.string().default("000300.SH"),
+  benchmark: z.string().regex(/^\d{6}\.(SH|SZ)$/).default("000300.SH"),
 });
 
 export const backtestRunnerRouter = createRouter({
-  run: publicQuery.input(BacktestInput).mutation(async ({ input }) => {
+  run: protectedQuery.input(BacktestInput).mutation(async ({ input }) => {
     const python = process.env.PYTHON_CMD || "python3";
     const args = [
       "-m",
@@ -66,9 +67,9 @@ export const backtestRunnerRouter = createRouter({
     } catch (err: any) {
       return {
         success: false,
-        error: err.message || String(err),
-        stdout: err.stdout?.slice(-2000) || "",
-        stderr: err.stderr?.slice(-1000) || "",
+        error: env.isProduction ? "Backtest execution failed" : (err.message || String(err)),
+        stdout: env.isProduction ? "" : (err.stdout?.slice(-2000) || ""),
+        stderr: env.isProduction ? "" : (err.stderr?.slice(-1000) || ""),
       };
     }
   }),

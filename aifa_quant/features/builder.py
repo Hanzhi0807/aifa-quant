@@ -1,6 +1,10 @@
 """Feature builder: raw quotes -> model features + labels."""
 
+import logging
+
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 from ..config.settings import Settings
 from ..data.adapters import AkShareAdapter, EDBMCPAdapter, StockMCPAdapter, build_free_sentiment_features
@@ -266,7 +270,10 @@ class FeatureBuilder:
             df[col] = df.groupby("symbol")[col].transform(lambda x: x.fillna(x.expanding(min_periods=1).median()))
             date_median = df.groupby("trade_date")[col].median().sort_index().expanding(min_periods=1).median()
             df[col] = df[col].fillna(df["trade_date"].map(date_median))
-            df[col] = df[col].fillna(0.0)
+            nan_ratio = df[col].isna().mean()
+            if nan_ratio > 0.3:
+                logger.warning(f"Feature {col} has {nan_ratio:.0%} NaN after filling — possible data issue")
+            df[col] = df[col].fillna(df[col].median() if not df[col].isna().all() else 0.0)
 
         if prediction_mode:
             df = df.dropna(subset=features)

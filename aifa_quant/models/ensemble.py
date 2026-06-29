@@ -51,6 +51,9 @@ class EnsembleModel:
                 model_path = registry_dir / name
             if model_path is None or not model_path.exists():
                 raise FileNotFoundError(f"Ensemble model not found: {name} ({model_path})")
+            allowed_base = (registry_dir if registry_dir else config_path.parent).resolve()
+            if not str(model_path.resolve()).startswith(str(allowed_base)):
+                raise ValueError(f"Model path escapes allowed directory: {model_path}")
 
             model_type = item.get("type", "lgb_classifier")
             model_cls = MODEL_CLASS_MAP.get(model_type)

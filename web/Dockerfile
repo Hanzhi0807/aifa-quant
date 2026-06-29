@@ -16,5 +16,8 @@ ENV NODE_ENV=production
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/package.json ./
 
+RUN adduser -D appuser
+USER appuser
+
 EXPOSE 3000
 CMD ["node", "dist/boot.js"]

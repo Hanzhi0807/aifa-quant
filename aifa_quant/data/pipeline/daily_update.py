@@ -1,11 +1,14 @@
 """Daily data update pipeline from iFind MCP to DuckDB."""
 
+import logging
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 from ...config.settings import Settings
 from ..adapters import AkShareAdapter, StockMCPAdapter
@@ -60,6 +63,7 @@ class DailyUpdatePipeline:
         self.store = DuckDBStore(self.settings)
         self.max_workers = max_workers
         self._rate_limiter = RateLimiter(max_requests=5, window_seconds=1.0)
+        self._write_lock = threading.Lock()
 
         if self.data_source == "akshare":
             self._daily_adapter = AkShareAdapter(self.settings)
@@ -77,6 +81,10 @@ class DailyUpdatePipeline:
         sample_size: int | None = None,
     ) -> list[str]:
         """Fetch stock list from configured source. Falls back to a default sample on error."""
+        logger.warning(
+            "Using current index constituents — results may exhibit survivorship bias. "
+            "Consider using point-in-time constituent data for rigorous backtests."
+        )
         try:
             if hasattr(self._daily_adapter, "get_stock_universe"):
                 symbols = self._daily_adapter.get_stock_universe(query)
@@ -194,7 +202,8 @@ class DailyUpdatePipeline:
                     print(f"[WARN] {symbol}: 无数据", flush=True)
                     continue
                 try:
-                    rows = self.store.save_daily_quotes(df)
+                    with self._write_lock:
+                        rows = self.store.save_daily_quotes(df)
                     total_rows += rows
                     print(f"[OK] {symbol}: 新增/更新 {rows} 条", flush=True)
                 except Exception as e:

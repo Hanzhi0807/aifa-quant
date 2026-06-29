@@ -1,9 +1,10 @@
 import { z } from "zod";
-import { createRouter, publicQuery } from "../middleware";
+import { createRouter, protectedQuery } from "../middleware";
 import { exec } from "child_process";
 import { promisify } from "util";
 import { existsSync } from "fs";
 import { resolve } from "path";
+import { env } from "../lib/env";
 
 const execAsync = promisify(exec);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -51,7 +52,7 @@ function isLockError(err: Error): boolean {
 }
 
 export const refreshRouter = createRouter({
-  run: publicQuery
+  run: protectedQuery
     .input(z.object({}).optional())
     .mutation(async () => {
       const projectRoot = getProjectRoot();
@@ -71,15 +72,15 @@ export const refreshRouter = createRouter({
           } catch (retryErr: any) {
             return {
               success: false,
-              message: retryErr.message || "刷新失败（重试后仍冲突）",
-              output: retryErr.stdout ? String(retryErr.stdout) : undefined,
+              message: env.isProduction ? "刷新失败" : (retryErr.message || "刷新失败（重试后仍冲突）"),
+              output: env.isProduction ? undefined : (retryErr.stdout ? String(retryErr.stdout) : undefined),
             };
           }
         }
         return {
           success: false,
-          message: err.message || "刷新失败",
-          output: err.stdout ? String(err.stdout) : undefined,
+          message: env.isProduction ? "刷新失败" : (err.message || "刷新失败"),
+          output: env.isProduction ? undefined : (err.stdout ? String(err.stdout) : undefined),
         };
       }
     }),

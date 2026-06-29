@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { createRouter, publicQuery } from "../middleware";
+import { createRouter, protectedQuery } from "../middleware";
 import { isDuckDBAvailable, queryDuckDB } from "../queries/duckdb";
 
 interface PositionRow {
@@ -73,7 +73,7 @@ function detectOscillation(closes: number[], window: number = 20): boolean {
 }
 
 export const riskRouter = createRouter({
-  status: publicQuery
+  status: protectedQuery
     .input(z.object({ profile: z.string().default("balanced") }))
     .query(async ({ input }) => {
       if (!isDuckDBAvailable()) {
@@ -89,18 +89,21 @@ export const riskRouter = createRouter({
 
         if (positions.length === 0) return null;
 
-        const symbols = positions.map((p) => `'${p.symbol}'`).join(",");
+        const symbolList = positions.map((p) => p.symbol);
+        const placeholders = symbolList.map(() => "?").join(",");
 
         // Get latest 60 days of quotes for ATR calculation
         const allQuotes = await queryDuckDB<QuoteRow>(
           `SELECT symbol, close, high, low, trade_date
            FROM daily_quotes
-           WHERE symbol IN (${symbols})
+           WHERE symbol IN (${placeholders})
            ORDER BY symbol, trade_date`,
+          symbolList,
         );
 
         const nameRows = await queryDuckDB<{ symbol: string; name: string }>(
-          `SELECT symbol, COALESCE(name, symbol) AS name FROM stock_universe WHERE symbol IN (${symbols})`
+          `SELECT symbol, COALESCE(name, symbol) AS name FROM stock_universe WHERE symbol IN (${placeholders})`,
+          symbolList,
         );
         const nameMap = new Map(nameRows.map((r) => [r.symbol, r.name]));
 

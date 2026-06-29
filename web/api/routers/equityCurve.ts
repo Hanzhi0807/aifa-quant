@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { createRouter, publicQuery } from "../middleware";
+import { createRouter, protectedQuery } from "../middleware";
 import { isDuckDBAvailable, queryDuckDB } from "../queries/duckdb";
 
 interface NavRow {
@@ -91,14 +91,14 @@ async function getEquityForProfile(profile: string): Promise<EquityPoint[] | nul
 }
 
 export const equityCurveRouter = createRouter({
-  getByBacktestId: publicQuery
+  getByBacktestId: protectedQuery
     .input(z.object({ backtestId: z.number() }))
     .query(async () => {
       if (!isDuckDBAvailable()) return null;
       return getEquityForProfile("balanced");
     }),
 
-  latest: publicQuery.query(async () => {
+  latest: protectedQuery.query(async () => {
     if (!isDuckDBAvailable()) return null;
     return getEquityForProfile("balanced");
   }),

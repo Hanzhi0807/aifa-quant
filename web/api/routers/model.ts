@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { createRouter, publicQuery } from "../middleware";
+import { createRouter, protectedQuery } from "../middleware";
 import { getDataStorePath } from "../queries/duckdb";
 import { readdir, readFile } from "fs/promises";
 import { join } from "path";
@@ -63,11 +63,11 @@ async function listModels(): Promise<ModelRow[]> {
 }
 
 export const modelRouter = createRouter({
-  list: publicQuery.query(async () => {
+  list: protectedQuery.query(async () => {
     return listModels();
   }),
 
-  getById: publicQuery
+  getById: protectedQuery
     .input(z.object({ id: z.number() }))
     .query(async ({ input }) => {
       const models = await listModels();

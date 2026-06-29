@@ -1,4 +1,4 @@
-import { createRouter, publicQuery } from "../middleware";
+import { createRouter, protectedQuery } from "../middleware";
 import { isDuckDBAvailable, queryDuckDB } from "../queries/duckdb";
 
 function formatDate(d: Date | undefined): string | undefined {
@@ -6,7 +6,7 @@ function formatDate(d: Date | undefined): string | undefined {
 }
 
 export const dbInfoRouter = createRouter({
-  stats: publicQuery.query(async () => {
+  stats: protectedQuery.query(async () => {
     if (!isDuckDBAvailable()) {
       return {
         totalRecords: 0,

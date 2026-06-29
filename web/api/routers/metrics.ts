@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { createRouter, publicQuery } from "../middleware";
+import { createRouter, protectedQuery } from "../middleware";
 import { getDataStorePath } from "../queries/duckdb";
 import { readdir, readFile } from "fs/promises";
 import { join } from "path";
@@ -61,13 +61,13 @@ async function readLatestMetrics(): Promise<Record<string, number> | null> {
 }
 
 export const metricsRouter = createRouter({
-  getByBacktestId: publicQuery
+  getByBacktestId: protectedQuery
     .input(z.object({ backtestId: z.number() }))
     .query(async ({ input }) => {
       return readMetricsByIndex(input.backtestId);
     }),
 
-  latest: publicQuery.query(async () => {
+  latest: protectedQuery.query(async () => {
     return readLatestMetrics();
   }),
 });

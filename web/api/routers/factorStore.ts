@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { createRouter, publicQuery } from "../middleware";
+import { createRouter, protectedQuery } from "../middleware";
 import { getDataStorePath } from "../queries/duckdb";
 import { readFile, writeFile } from "fs/promises";
 import { existsSync } from "fs";
@@ -56,7 +56,7 @@ async function refreshAvailableFeatures(): Promise<Record<string, string>> {
 }
 
 export const factorStoreRouter = createRouter({
-  listAvailable: publicQuery.query(async () => {
+  listAvailable: protectedQuery.query(async () => {
     const available = await refreshAvailableFeatures();
     const selected = await loadSelectedFeatures();
     return Object.entries(available).map(([name, group]) => ({
@@ -66,11 +66,11 @@ export const factorStoreRouter = createRouter({
     }));
   }),
 
-  getSelected: publicQuery.query(async () => {
+  getSelected: protectedQuery.query(async () => {
     return loadSelectedFeatures();
   }),
 
-  setSelected: publicQuery
+  setSelected: protectedQuery
     .input(z.object({ features: z.array(z.string()) }))
     .mutation(async ({ input }) => {
       await ensureConfigDir();

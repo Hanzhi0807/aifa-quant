@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { createRouter, publicQuery } from "../middleware";
+import { createRouter, protectedQuery } from "../middleware";
 import { getDataStorePath } from "../queries/duckdb";
 import { readdir, readFile } from "fs/promises";
 import { join } from "path";
@@ -58,12 +58,12 @@ async function readLatestICSummary(): Promise<ICSummaryRow[]> {
 }
 
 export const factorAnalysisRouter = createRouter({
-  summary: publicQuery.query(async () => {
+  summary: protectedQuery.query(async () => {
     return readLatestICSummary();
   }),
 
-  detail: publicQuery
-    .input(z.object({ feature: z.string() }))
+  detail: protectedQuery
+    .input(z.object({ feature: z.string().regex(/^[a-zA-Z0-9_]+$/) }))
     .query(async ({ input }) => {
       const dir = getDataStorePath("reports/factor_analysis");
       const files = await listICSummaries();

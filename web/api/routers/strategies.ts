@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { createRouter, publicQuery } from "../middleware";
+import { createRouter, protectedQuery } from "../middleware";
 import { isDuckDBAvailable, queryDuckDB } from "../queries/duckdb";
 
 const PROFILES = ["aggressive", "balanced", "conservative", "growth", "value"] as const;
@@ -135,17 +135,20 @@ async function getProfilePicks(profile: string): Promise<{
   );
   if (positions.length === 0) return null;
 
-  const symbols = positions.map((p) => `'${p.symbol}'`).join(",");
+  const symbolList = positions.map((p) => p.symbol);
+  const placeholders = symbolList.map(() => "?").join(",");
   const quotes = await queryDuckDB<QuoteRow>(
     `SELECT q.symbol, q.close, q.trade_date FROM daily_quotes q
      INNER JOIN (SELECT symbol, MAX(trade_date) AS td FROM daily_quotes
-       WHERE symbol IN (${symbols}) GROUP BY symbol) m
+       WHERE symbol IN (${placeholders}) GROUP BY symbol) m
      ON q.symbol = m.symbol AND q.trade_date = m.td`,
+    symbolList,
   );
   const quoteMap = new Map(quotes.map((q) => [q.symbol, q.close]));
 
   const names = await queryDuckDB<NameRow>(
-    `SELECT symbol, COALESCE(name, symbol) AS name FROM stock_universe WHERE symbol IN (${symbols})`,
+    `SELECT symbol, COALESCE(name, symbol) AS name FROM stock_universe WHERE symbol IN (${placeholders})`,
+    symbolList,
   );
   const nameMap = new Map(names.map((r) => [r.symbol, r.name]));
 
@@ -176,7 +179,7 @@ async function getProfilePicks(profile: string): Promise<{
 }
 
 export const strategiesRouter = createRouter({
-  list: publicQuery.query(async () => {
+  list: protectedQuery.query(async () => {
     if (!isDuckDBAvailable()) return [];
 
     const briefs: StrategyBrief[] = [];
@@ -213,14 +216,14 @@ export const strategiesRouter = createRouter({
     return briefs;
   }),
 
-  getPicks: publicQuery
+  getPicks: protectedQuery
     .input(z.object({ profile: z.string().default("balanced") }))
     .query(async ({ input }) => {
       if (!isDuckDBAvailable()) return null;
       return getProfilePicks(input.profile);
     }),
 
-  getEquity: publicQuery
+  getEquity: protectedQuery
     .input(z.object({ profile: z.string().default("balanced") }))
     .query(async ({ input }) => {
       if (!isDuckDBAvailable()) return null;
@@ -277,7 +280,7 @@ export const strategiesRouter = createRouter({
       return points;
     }),
 
-  getProfile: publicQuery
+  getProfile: protectedQuery
     .input(z.object({ profile: z.string().default("balanced") }))
     .query(async ({ input }) => {
       const label = PROFILE_LABELS[input.profile];
