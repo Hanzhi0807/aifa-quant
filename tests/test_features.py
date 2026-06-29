@@ -3,7 +3,9 @@
 import pandas as pd
 import pytest
 
+from aifa_quant.config.settings import Settings
 from aifa_quant.features.alpha_factors import compute_alpha_factors
+from aifa_quant.features.builder import FeatureBuilder
 from aifa_quant.features.fundamental import merge_fundamental_to_daily
 from aifa_quant.features.macro import merge_macro_to_daily
 from aifa_quant.features.technical import (
@@ -103,3 +105,59 @@ def test_macro_merge_applies_publication_delay():
     result = merge_macro_to_daily(daily, macro, "cpi_yoy")
     assert pd.isna(result.loc[result["trade_date"] == pd.Timestamp("2024-01-15"), "cpi_yoy"].iloc[0])
     assert result.loc[result["trade_date"] == pd.Timestamp("2024-02-05"), "cpi_yoy"].iloc[0] == pytest.approx(2.0)
+
+
+def test_build_features_cache_only_backfills_macro_from_akshare(tmp_path, monkeypatch):
+    class FakeAkShareAdapter:
+        calls = []
+
+        def __init__(self, settings=None):
+            self.settings = settings
+
+        def get_macro_data(self, indicator_name, start_date=None, end_date=None):
+            self.calls.append((indicator_name, start_date, end_date))
+            if indicator_name == "cpi_yoy":
+                return pd.DataFrame({"trade_date": pd.to_datetime(["2024-01-01"]), "value": [2.1]})
+            return pd.DataFrame(columns=["trade_date", "value"])
+
+    monkeypatch.setattr("aifa_quant.features.builder.AkShareAdapter", FakeAkShareAdapter)
+
+    settings = Settings(data_dir=str(tmp_path), duckdb_path=str(tmp_path / "test.duckdb"))
+    builder = FeatureBuilder(settings)
+    dates = pd.bdate_range("2024-02-01", periods=45)
+    close = pd.Series(range(10, 10 + len(dates)), dtype="float64")
+    quotes = pd.DataFrame(
+        {
+            "symbol": "000001.SZ",
+            "trade_date": dates,
+            "open": close,
+            "high": close + 1,
+            "low": close - 1,
+            "close": close,
+            "volume": 1000,
+            "amount": close * 1000,
+        }
+    )
+    builder.store.save_daily_quotes(quotes)
+
+    try:
+        result = builder.build_features(
+            symbols=["000001.SZ"],
+            start_date="20240201",
+            end_date=dates[-1].strftime("%Y%m%d"),
+            include_fundamental=False,
+            include_macro=True,
+            include_sentiment=False,
+            include_alpha=False,
+            cache_only=True,
+            prediction_mode=True,
+        )
+        cached = builder.store.load_macro_data("cpi_yoy", start_date="20240101", end_date="20241231")
+    finally:
+        builder.store.close()
+
+    assert not result.empty
+    assert "cpi_yoy" in result.columns
+    assert result["cpi_yoy"].max() == pytest.approx(2.1)
+    assert not cached.empty
+    assert FakeAkShareAdapter.calls[0] == ("cpi_yoy", "20231103", dates[-1].strftime("%Y%m%d"))
