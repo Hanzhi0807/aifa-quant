@@ -1,5 +1,3 @@
-import { useMemo } from 'react'
-
 export interface RiskMetrics {
   industry_concentration: Record<string, number>  // industry -> weight
   market_cap_quantile: { small: number; mid: number; large: number }
@@ -22,7 +20,6 @@ export function RiskExposure(props: { metrics: RiskMetrics | null }): React.JSX.
   }
 
   const industries = Object.entries(m.industry_concentration).sort((a, b) => b[1] - a[1])
-  const maxInd = industries[0]?.[1] ?? 0
   const styleAxes = [
     { key: 'momentum', label: '动量', value: m.style_exposures.momentum },
     { key: 'value', label: '价值', value: m.style_exposures.value },
