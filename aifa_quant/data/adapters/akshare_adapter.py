@@ -377,3 +377,71 @@ class AkShareAdapter(BaseDataSource):
         if not frames:
             return pd.DataFrame()
         return pd.concat(frames, ignore_index=True)
+
+    def get_market_cap_snapshot(self) -> pd.DataFrame:
+        """Fetch current circulating market cap and total shares for all A-shares.
+
+        Uses ``ak.stock_zh_a_spot_em`` which returns a real-time snapshot of the
+        whole A-share market in one call.  Share counts change slowly (only on
+        placement / buyback announcements), so we treat the snapshot as a
+        point-in-time proxy for historical market-cap estimation:
+        ``market_cap_t ≈ close_t × circulating_shares_now``.
+
+        The snapshot provides 流通市值 / 总市值 / 最新价 but not raw share counts,
+        so we derive ``circulating_share = 流通市值 / 最新价``.
+
+        Returns DataFrame with columns: symbol, name, circulating_mv (元),
+        total_mv (元), circulating_share, total_share, close, trade_date.
+        """
+        df = None
+        last_err: Exception | None = None
+        for attempt in range(4):
+            try:
+                df = self._ak.stock_zh_a_spot_em()
+                if df is not None and not df.empty:
+                    break
+            except Exception as e:
+                last_err = e
+                time.sleep(2 + attempt * 2)
+        if df is None or df.empty:
+            if last_err:
+                raise RuntimeError(f"stock_zh_a_spot_em failed after retries: {last_err}")
+            return pd.DataFrame()
+
+        # Normalize column names — AkShare returns Chinese names.
+        col_map = {
+            "代码": "code",
+            "名称": "name",
+            "流通市值": "circulating_mv",
+            "总市值": "total_mv",
+            "最新价": "close",
+            "市盈率-动态": "pe_ttm",
+            "市净率": "pb_lyr",
+            "市销率-动态": "ps_ttm",
+            "股息率": "dv_ratio",
+        }
+        renamed = df.rename(columns={k: v for k, v in col_map.items() if k in df.columns})
+
+        # Build symbol with .SH/.SZ suffix.
+        def _to_symbol(code: str) -> str:
+            code = str(code).zfill(6)
+            if code.startswith(("60", "68", "9", "11", "13")):
+                return f"{code}.SH"
+            return f"{code}.SZ"
+
+        renamed["symbol"] = renamed["code"].apply(_to_symbol)
+        renamed["trade_date"] = pd.Timestamp.now().normalize()
+
+        # Derive share counts from market cap / price.
+        for col in ["circulating_mv", "total_mv", "close", "pe_ttm", "pb_lyr", "ps_ttm", "dv_ratio"]:
+            if col in renamed.columns:
+                renamed[col] = pd.to_numeric(renamed[col], errors="coerce")
+        if "circulating_mv" in renamed.columns and "close" in renamed.columns:
+            renamed["circulating_share"] = renamed["circulating_mv"] / renamed["close"]
+        if "total_mv" in renamed.columns and "close" in renamed.columns:
+            renamed["total_share"] = renamed["total_mv"] / renamed["close"]
+
+        keep = ["symbol", "name", "circulating_mv", "total_mv",
+                "circulating_share", "total_share", "close", "trade_date",
+                "pe_ttm", "pb_lyr", "ps_ttm", "dv_ratio"]
+        return renamed[[c for c in keep if c in renamed.columns]]

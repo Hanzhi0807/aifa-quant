@@ -293,6 +293,40 @@ def alpha101(df: pd.DataFrame) -> pd.Series:
     return (df["close"] - df["open"]) / (df["high"] - df["low"] + 1e-6)
 
 
+def alpha026(df: pd.DataFrame) -> pd.Series:
+    """scale(-1 * ts_max(correlation(ts_rank(volume,5), ts_rank(high,5), 5), 5))
+
+    A high-volume / high-price co-movement over 5 days → bearish signal.
+    """
+    vol_rank = df.groupby("symbol", group_keys=False)["volume"].transform(lambda x: x.rolling(5).rank(pct=True))
+    high_rank = df.groupby("symbol", group_keys=False)["high"].transform(lambda x: x.rolling(5).rank(pct=True))
+    corr = _ts_corr(df, vol_rank, high_rank, 5)
+    neg_max = corr.groupby(df["symbol"], group_keys=False).transform(lambda x: -x.rolling(5).max())
+    return _scale(df, neg_max)
+
+
+def alpha033(df: pd.DataFrame) -> pd.Series:
+    """scale(-1 * (1 - open/close))"""
+    return _scale(df, -1.0 * (1.0 - df["open"] / df["close"]))
+
+
+def alpha044(df: pd.DataFrame) -> pd.Series:
+    """scale(-1 * ts_rank(decay_linear(correlation(low, mean(volume,10), 7), 6), 12))
+
+    Simplified: -ts_rank(correlation(low, mean(volume,10), 7), 12)
+    """
+    vol_mean10 = df.groupby("symbol", group_keys=False)["volume"].transform(lambda x: x.rolling(10).mean())
+    corr = _ts_corr(df, df["low"], vol_mean10, 7)
+    neg_rank = corr.groupby(df["symbol"], group_keys=False).transform(lambda x: -x.rolling(12).rank(pct=True))
+    return _scale(df, neg_rank)
+
+
+def alpha085(df: pd.DataFrame) -> pd.Series:
+    """scale((rank(correlation(close, volume, 20)) * (-1)))"""
+    corr = _ts_corr(df, df["close"], df["volume"], 20)
+    return _scale(df, -1.0 * _rank(df, corr))
+
+
 ALPHA_REGISTRY: dict[str, tuple[str, Callable[[pd.DataFrame], pd.Series]]] = {
     "alpha002": ("momentum", alpha002),
     "alpha003": ("momentum", alpha003),
@@ -307,14 +341,18 @@ ALPHA_REGISTRY: dict[str, tuple[str, Callable[[pd.DataFrame], pd.Series]]] = {
     "alpha018": ("momentum", alpha018),
     "alpha020": ("momentum", alpha020),
     "alpha024": ("momentum", alpha024),
+    "alpha026": ("volume", alpha026),
     "alpha032": ("volume", alpha032),
+    "alpha033": ("mean_reversion", alpha033),
     "alpha034": ("mean_reversion", alpha034),
     "alpha041": ("mean_reversion", alpha041),
     "alpha043": ("momentum", alpha043),
+    "alpha044": ("volume", alpha044),
     "alpha046": ("mean_reversion", alpha046),
     "alpha050": ("volume", alpha050),
     "alpha054": ("volatility", alpha054),
     "alpha060": ("momentum", alpha060),
+    "alpha085": ("volume", alpha085),
     "alpha101": ("momentum", alpha101),
 }
 

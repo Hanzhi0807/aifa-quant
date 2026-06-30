@@ -168,6 +168,8 @@ python -m aifa_quant.cli.main explain \
 | `python scripts/daily_refresh.py --force --skip-paper-trade` | 首次全量拉取数据 |
 | `python scripts/push_to_supabase.py` | 推送所有 profile 信号到 Supabase 云端 |
 | `python scripts/update_index_data.py` | 同步更新指数基准 |
+| `python scripts/update_market_caps.py` | 从 AkShare 拉全市场市值+PE/PB/PS/DV 快照写入 stock_universe |
+| `python scripts/update_fundamentals.py` | 从 AkShare 拉季度财务指标(ROE/毛利率等)写入 fundamental_data |
 | `python -m aifa_quant.cli.main data-update --universe 沪深300 --start 20250101 --end <今天日期>` | 用 AkShare 更新日线数据 |
 | `python -m aifa_quant.cli.main db-info` | 查看 DuckDB 数据概览 |
 | `python -m aifa_quant.cli.main train --start 20250101 --end <今天日期>` | 训练 LightGBM 模型 |
@@ -221,9 +223,12 @@ aifa_quant/
 AifaQuant 采用**本地优先**的数据策略：
 
 1. **首次部署**：`scripts/daily_refresh.py --force --skip-paper-trade` 一次性拉取约 1800 只股票从 2025-01-01 起的日线和指数数据。
-2. **每日增量**：`scripts/daily_refresh.py` 工作日自动增量更新日线、指数，并运行所有 profile 的模拟交易。
-3. **云端推送**：`scripts/push_to_supabase.py` 将本地 DuckDB 中的持仓数据推送到 Supabase，供云端信号看板展示。
-4. **备份迁移**：直接复制 `data_store/aifa_quant.duckdb` 即可，**不通过 GitHub Release 分发数据**。
+2. **补齐市值与基本面**（首次或周期性）：
+   - `python scripts/update_market_caps.py` — 拉全市场市值+PE/PB/PS/DV 快照（解锁中性化与 value profile）
+   - `python scripts/update_fundamentals.py` — 拉季度 ROE/毛利率等（解锁 quality profile，约 30-60 分钟）
+3. **每日增量**：`scripts/daily_refresh.py` 工作日自动增量更新日线、指数，并运行所有 profile 的模拟交易。
+4. **云端推送**：`scripts/push_to_supabase.py` 将本地 DuckDB 中的持仓数据推送到 Supabase，供云端信号看板展示。
+5. **备份迁移**：直接复制 `data_store/aifa_quant.duckdb` 即可，**不通过 GitHub Release 分发数据**。
 
 详见 [`docs/DATA.md`](docs/DATA.md)。
 

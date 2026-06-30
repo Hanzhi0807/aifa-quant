@@ -14,6 +14,8 @@ import warnings
 import numpy as np
 import pandas as pd
 
+from ..core.cost_model import CostModel, DEFAULT_COST_MODEL
+
 logger = logging.getLogger(__name__)
 
 
@@ -26,7 +28,8 @@ def _label_excess_quantile(
     df: pd.DataFrame,
     label_horizon: int = 5,
     drop_middle: bool = False,
-    cost: float = 0.0008,
+    cost: float | None = None,
+    cost_model: CostModel | None = None,
 ) -> pd.DataFrame:
     """Build cost-adjusted cross-sectional excess-return quantile labels.
 
@@ -45,11 +48,15 @@ def _label_excess_quantile(
         df: DataFrame with symbol, trade_date, close columns.
         label_horizon: Forward return horizon in trading days.
         drop_middle: If True, drop the middle quantile of each cross-section.
-        cost: Total one-way transaction cost (commission + stamp_duty + slippage).
+        cost: Total one-way transaction cost. If None, derived from ``cost_model``.
+        cost_model: A CostModel instance. If None, uses DEFAULT_COST_MODEL.
 
     Returns:
         DataFrame with added label columns: label_return, label_excess, label_rank.
     """
+    if cost is None:
+        cm = cost_model or DEFAULT_COST_MODEL
+        cost = cm.one_way_cost()
     result = df.copy()
     result["label_return"] = _compute_future_return(result, label_horizon)
     result["label_excess"] = result.groupby("trade_date")["label_return"].transform(
@@ -162,7 +169,8 @@ def compute_labels(
     pt_mult: float = 2.0,
     sl_mult: float = 1.0,
     max_holding: int = 10,
-    cost: float = 0.0008,
+    cost: float | None = None,
+    cost_model: CostModel | None = None,
 ) -> pd.DataFrame:
     """Build labels for the requested scheme.
 
@@ -174,13 +182,14 @@ def compute_labels(
         pt_mult: For triple_barrier only; profit-taking ATR multiplier.
         sl_mult: For triple_barrier only; stop-loss ATR multiplier.
         max_holding: For triple_barrier only; maximum holding period in days.
-        cost: Total one-way transaction cost for excess_quantile.
+        cost: Total one-way transaction cost for excess_quantile. If None, derived from cost_model.
+        cost_model: A CostModel instance. If None, uses DEFAULT_COST_MODEL.
 
     Returns:
         DataFrame with label column(s) attached.
     """
     if label_type == "excess_quantile":
-        return _label_excess_quantile(df, label_horizon, drop_middle, cost)
+        return _label_excess_quantile(df, label_horizon, drop_middle, cost, cost_model)
     if label_type == "triple_barrier":
         return _label_triple_barrier(df, label_horizon, pt_mult, sl_mult, max_holding)
     if label_type == "binary":

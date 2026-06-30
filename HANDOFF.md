@@ -353,13 +353,15 @@ npm run build
 | 问题 | 说明 | 建议 |
 |------|------|------|
 | GitHub Actions 被禁用 | `gh workflow run` 报 `Actions has been disabled for this user` | 在 GitHub 账号/仓库设置里启用 Actions |
-| iFind MCP 配额耗尽 | 股票/新闻 MCP 均可能报限流或无法返回数据 | 日线/指数/成分股已默认走 AkShare；基本面/宏观可通过 `data-update --fundamental --macro` 一次性缓存，之后回测不再调用 iFind |
+| iFind MCP 配额耗尽 | 股票/新闻 MCP 均可能报限流或无法返回数据 | 日线/指数/成分股默认走 AkShare；基本面已改用 `scripts/update_fundamentals.py`（AkShare）补齐；宏观可走 `data-update --macro` |
 | iFind news MCP 无数据 | 返回 `用户使用过于频繁`，情绪因子当前为空 | 暂时关闭 `--sentiment`；使用 `--sentiment-source free` 获取免费情绪数据 |
-| DuckDB 锁库 | Web 已优化关闭逻辑，但孤儿 Node/Python 进程仍可能锁库 | Windows 下用任务管理器结束对应 PID；Linux/macOS 用 `lsof` / `kill` |
+| DuckDB 锁库 | Web 已优化关闭逻辑，但孤儿 Node/Python 进程仍可能锁库 | 第三轮已加 `_WRITE_LOCK`（进程内）+ 只读连接支持；跨进程仍需手动结束 PID |
 | Docker 构建失败 | 本机无法拉取 `python:3.12-slim` / `node:22-slim` | 配置 Docker 镜像源或离线导入基础镜像 |
 | 成分股非历史真实 | AkShare 返回当前最新成分股 | 长周期回测存在幸存者偏差，谨慎解读 |
 | 模型需重新训练 | 现有模型基于沪深 300 训练，扩大到中证 500/1000 后性能未知 | 用新 universe 和 2025 年以来的数据重新训练 |
 | TopK-Dropout 持仓数波动 | `dropout_threshold = top_k × 2`，缓冲期内持仓可能暂时大于 `top_k` | 这是策略设计的降仓缓冲，非 bug |
+| PE/PB 日频历史缺失 | `stock_universe.pe_ttm/pb_lyr` 是当前快照，非 point-in-time 历史 | 回测用 `pe_snap/pb_snap` 有轻微前视；完整历史估值需接入 Tushare daily_basic |
+| 东财 spot 接口偶发不可用 | `stock_zh_a_spot_em` 偶尔 `RemoteDisconnected` | `update_market_caps.py` 已加 4 次重试；失败时稍后重跑即可 |
 | 前收盘价维护 | 回测引擎用成本价近似；模拟交易已加载前收盘价 | 继续完善数据源，确保 `prev_close` 准确 |
 
 ---

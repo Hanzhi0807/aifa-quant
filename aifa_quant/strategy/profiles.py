@@ -140,9 +140,10 @@ PROFILES: dict[str, StrategyProfile] = {
         target_risk_pct=0.015,
         regime_ma_threshold=0.93,  # value: more tolerant of drawdown
         factor_group_weights={
-            "value": 0.50,
+            "value": 0.40,
+            "dividend": 0.15,
             "quality": 0.30,
-            "low_volatility": 0.20,
+            "low_volatility": 0.15,
         },
     ),
 }

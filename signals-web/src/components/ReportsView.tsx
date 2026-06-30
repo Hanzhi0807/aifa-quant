@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 
 interface ReportMeta {
@@ -10,6 +11,28 @@ interface ReportMeta {
 
 interface ReportFull extends ReportMeta {
   content: string
+}
+
+const STOCK_RE = /(\d{6}\.[SH|SZ]+)/g
+const STOCK_CHECK = /^\d{6}\.[SH|SZ]+$/
+
+/** Split text into spans, turning NNNNNN.SH/SZ codes into clickable Links. */
+function renderTextWithStockLinks(text: string): React.JSX.Element[] {
+  const parts = text.split(STOCK_RE)
+  return parts.map((part, i) => {
+    if (STOCK_CHECK.test(part)) {
+      return (
+        <Link
+          key={i}
+          to={`/stock/${part}`}
+          className="text-[var(--cyan)] hover:underline cursor-pointer"
+        >
+          {part}
+        </Link>
+      )
+    }
+    return <span key={i}>{part}</span>
+  })
 }
 
 function MarkdownRenderer({ content }: { content: string }) {
@@ -48,7 +71,7 @@ function MarkdownRenderer({ content }: { content: string }) {
                     key={ci}
                     className="py-2 pr-4 text-sm text-[var(--text-secondary)]"
                   >
-                    {cell.trim()}
+                    {renderTextWithStockLinks(cell.trim())}
                   </td>
                 ))}
               </tr>
@@ -110,7 +133,7 @@ function MarkdownRenderer({ content }: { content: string }) {
     } else {
       elements.push(
         <p key={i} className="text-sm text-[var(--text-secondary)] my-1">
-          {line}
+          {renderTextWithStockLinks(line)}
         </p>
       )
     }

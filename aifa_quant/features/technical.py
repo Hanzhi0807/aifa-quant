@@ -51,7 +51,13 @@ def compute_volatility(df: pd.DataFrame, windows: list[int] = None) -> pd.DataFr
 
 
 def compute_rsi(df: pd.DataFrame, window: int = 14) -> pd.DataFrame:
-    """Compute Relative Strength Index."""
+    """Compute Relative Strength Index.
+
+    Boundary handling (the previous implementation got these backwards):
+      - avg_loss == 0 (purely up days in window) → RSI = 100 (max strength)
+      - avg_gain == 0 (purely down days in window) → RSI = 0 (max weakness)
+      - both zero (flat) or insufficient data → RSI = 50 (neutral)
+    """
     if "trade_date" in df.columns:
         df = df.sort_values("trade_date").copy()
     else:
@@ -61,10 +67,24 @@ def compute_rsi(df: pd.DataFrame, window: int = 14) -> pd.DataFrame:
     loss = -delta.where(delta < 0, 0.0)
     avg_gain = gain.rolling(window=window, min_periods=1).mean()
     avg_loss = loss.rolling(window=window, min_periods=1).mean()
-    rs = avg_gain / avg_loss.replace(0, np.nan)
-    rsi = 100 - (100 / (1 + rs))
-    rsi = rsi.fillna(100.0)
-    rsi = rsi.where(avg_gain > 0, 0.0)
+
+    # Default to neutral 50; overwrite where a clear signal exists.
+    rsi = pd.Series(50.0, index=df.index)
+
+    # Normal RS where avg_loss > 0.
+    valid = avg_loss > 0
+    rs = avg_gain[valid] / avg_loss[valid]
+    rsi[valid] = 100 - (100 / (1 + rs))
+
+    # Purely up (avg_loss == 0, avg_gain > 0) → 100.
+    pure_up = (avg_loss == 0) & (avg_gain > 0)
+    rsi[pure_up] = 100.0
+
+    # Purely down (avg_gain == 0, avg_loss > 0) → 0.
+    pure_down = (avg_gain == 0) & (avg_loss > 0)
+    rsi[pure_down] = 0.0
+
+    # First row: delta is NaN → gain=loss=0 → stays 50 (neutral). Correct.
     df[f"rsi_{window}"] = rsi
     return df
 

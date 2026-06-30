@@ -23,6 +23,7 @@ class RollingTrainer:
         label_horizon: int = 5,
         label_type: str = "excess_quantile",
         corr_threshold: float | None = 0.95,
+        ic_threshold: float = 0.02,
     ):
         self.settings = settings or Settings()
         self.model_factory = model_factory or LGBLambdaRankModel
@@ -32,6 +33,7 @@ class RollingTrainer:
         self.label_horizon = label_horizon
         self.label_type = label_type
         self.corr_threshold = corr_threshold
+        self.ic_threshold = ic_threshold
 
     def predict_rolling(
         self,
@@ -80,6 +82,18 @@ class RollingTrainer:
             active_features = feature_cols
             if self.corr_threshold is not None and self.corr_threshold < 1.0:
                 active_features = drop_highly_correlated(train_df, active_features, threshold=self.corr_threshold)
+            # Factor IC screening: drop factors with |IC| < ic_threshold over the
+            # training window. Runs inside each window so no future leakage.
+            if self.ic_threshold and self.ic_threshold > 0:
+                from ..features.factor_selection import select_by_ic
+                label_for_ic = "label_return" if "label_return" in train_df.columns else None
+                if label_for_ic:
+                    ic_survivors = select_by_ic(
+                        train_df, active_features, label_col=label_for_ic,
+                        threshold=self.ic_threshold,
+                    )
+                    if ic_survivors:
+                        active_features = ic_survivors
             if not active_features:
                 continue
 
