@@ -33,6 +33,7 @@ class SimulatedBroker(BaseBroker):
         stamp_duty_rate: float = 0.001,
         slippage: float = 0.0,
         profile: str = "balanced",
+        st_symbols: set[str] | None = None,
     ):
         if config is None:
             config = TradingConfig(
@@ -59,6 +60,8 @@ class SimulatedBroker(BaseBroker):
         self._day_quotes: pd.DataFrame | None = None
         self._prev_close_map: dict[str, float] | None = None
         self.profile = profile
+        # ST symbols get ±5% limits instead of ±10%/±20%.
+        self.st_symbols: set[str] = set(st_symbols) if st_symbols else set()
 
     # ------------------------------------------------------------------
     # Connection & state management
@@ -192,6 +195,12 @@ class SimulatedBroker(BaseBroker):
             # Test mode fallback
             exec_price = 100.0
 
+        # Suspension check: volume==0 on the day means the stock is halted.
+        if self._is_suspended(symbol):
+            base_order["status"] = "rejected-suspended"
+            self.orders.append(base_order)
+            return base_order
+
         # Limit-up / limit-down checks only when we have a reference close
         prev_close = self._prev_close(symbol)
         if prev_close:
@@ -294,9 +303,33 @@ class SimulatedBroker(BaseBroker):
             return None
         return float(row.iloc[0]["close"])
 
+    def _is_suspended(self, symbol: str) -> bool:
+        """Return True if the symbol is halted on the current trade date.
+
+        AkShare returns volume==0 with the last close echoed on suspended days.
+        """
+        if self._day_quotes is None or self._day_quotes.empty:
+            return False
+        row = self._day_quotes[self._day_quotes["symbol"] == symbol]
+        if row.empty or "volume" not in row.columns:
+            return False
+        vol = row.iloc[0].get("volume")
+        if vol is None or pd.isna(vol):
+            return False
+        return float(vol) == 0
+
     def _limit_ratio(self, symbol: str) -> float:
-        """Return limit-up/down ratio based on board type (A-share rules)."""
-        if symbol.startswith("300") or symbol.startswith("688"):
+        """Return limit-up/down ratio based on ST flag and board type.
+
+        Precedence: st_symbols set > board code prefix.
+        ST → 5%, STAR/ChiNext (300/301/688) → 20%, otherwise → 10%.
+
+        Note: symbol is in ``NNNNNN.SH/.SZ`` form, so we strip the suffix first.
+        """
+        if symbol in self.st_symbols:
+            return 0.05
+        code = symbol.split(".")[0]
+        if code.startswith(("300", "301", "688")):
             return 0.20
         return 0.10
 

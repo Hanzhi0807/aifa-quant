@@ -17,9 +17,19 @@ momentum:
 value:
   columns:
     - pe_lyr
+    - pe_snap
     - pb
     - pb_mrq
+    - pb_snap
+    - ps_snap
   direction: -1
+  winsorize: true
+  neutralize: true
+
+dividend:
+  columns:
+    - dv_snap
+  direction: 1
   winsorize: true
   neutralize: true
 

@@ -119,21 +119,37 @@ class FeatureBuilder:
 
         # Ensure auxiliary columns needed for neutralization are available
         if neutralize:
-            if "market_cap" not in raw.columns:
-                close = pd.to_numeric(raw["close"], errors="coerce")
-                if "outstanding_share" in raw.columns:
-                    raw["market_cap"] = close * pd.to_numeric(raw["outstanding_share"], errors="coerce")
-                elif "total_shares" in raw.columns:
-                    raw["market_cap"] = close * pd.to_numeric(raw["total_shares"], errors="coerce")
-            if "industry" not in raw.columns:
-                try:
-                    universe = self.store.load_stock_universe()
-                    if not universe.empty and "industry" in universe.columns:
-                        raw = raw.merge(universe[["symbol", "industry"]], on="symbol", how="left")
-                    else:
-                        warnings.warn("Industry data not available in stock_universe; skipping industry dummies.")
-                except Exception as e:
-                    warnings.warn(f"Unable to load industry data: {e}; skipping industry dummies.")
+            # Always try to attach market_cap and industry from stock_universe,
+            # because daily_quotes rarely carries outstanding_share.
+            try:
+                universe = self.store.load_stock_universe()
+            except Exception as e:
+                warnings.warn(f"Unable to load stock_universe: {e}; neutralization will be limited.")
+                universe = pd.DataFrame()
+
+            if "market_cap" not in raw.columns and not universe.empty:
+                # Estimate historical market cap = close × circulating_share (snapshot).
+                # Share count changes slowly, so this is a reasonable point-in-time proxy.
+                if "circulating_share" in universe.columns:
+                    mc_map = dict(zip(universe["symbol"], pd.to_numeric(universe["circulating_share"], errors="coerce")))
+                    close = pd.to_numeric(raw["close"], errors="coerce")
+                    raw["market_cap"] = close * raw["symbol"].map(mc_map)
+                    if raw["market_cap"].isna().all():
+                        warnings.warn(
+                            "circulating_share present in stock_universe but all NaN; "
+                            "market_cap unavailable. Run scripts/update_market_caps.py. "
+                            "Neutralization will degrade to winsorize+z-score only.",
+                        )
+                else:
+                    warnings.warn(
+                        "circulating_share not in stock_universe; run scripts/update_market_caps.py. "
+                        "Neutralization will degrade to winsorize+z-score only.",
+                    )
+
+            if "industry" not in raw.columns and not universe.empty and "industry" in universe.columns:
+                raw = raw.merge(universe[["symbol", "industry"]], on="symbol", how="left")
+            elif "industry" not in raw.columns:
+                warnings.warn("Industry data not available in stock_universe; skipping industry dummies.")
 
         # Optionally merge fundamental data
         if include_fundamental:
@@ -173,6 +189,20 @@ class FeatureBuilder:
 
             if not cached_fundamental.empty:
                 raw = merge_fundamental_to_daily(raw, cached_fundamental)
+
+            # Also attach the daily valuation snapshot (PE/PB/PS/DV) from
+            # stock_universe.  These are current-snapshot values (not point-in-time
+            # historical), so they are most appropriate in prediction mode; in
+            # backtests they introduce mild look-ahead.  We name them _snap to
+            # distinguish from the quarterly pe_lyr/pb above.
+            try:
+                snap_cols = ["symbol", "pe_ttm", "pb_lyr", "ps_ttm", "dv_ratio"]
+                snap = self.store.load_stock_universe()[snap_cols]
+                snap = snap.rename(columns={"pe_ttm": "pe_snap", "pb_lyr": "pb_snap",
+                                            "ps_ttm": "ps_snap", "dv_ratio": "dv_snap"})
+                raw = raw.merge(snap, on="symbol", how="left")
+            except Exception as e:
+                warnings.warn(f"Unable to merge valuation snapshot: {e}")
 
         # Optionally merge macro data
         if include_macro:
@@ -310,19 +340,23 @@ class FeatureBuilder:
             if df[col].isna().mean() > nan_threshold:
                 df = df.drop(columns=[col])
 
-        # Fill remaining NaNs without looking forward. First use each symbol's
-        # expanding median, then a date-level expanding median, then zero for
-        # columns that have no historical observations yet.
+        # Fill remaining NaNs without looking forward. Order of fallback:
+        #   1. each symbol's own expanding median (only past values)
+        #   2. the cross-sectional median for the same trade_date (known at T close)
+        #   3. 0.0 as a last resort
+        # The previous implementation used df[col].median() — the *global* median
+        # across all dates — which leaks future information into earlier rows.
         df = df.sort_values(["symbol", "trade_date"]).reset_index(drop=True)
         features = self.feature_columns(df)
         for col in features:
             df[col] = df.groupby("symbol")[col].transform(lambda x: x.fillna(x.expanding(min_periods=1).median()))
-            date_median = df.groupby("trade_date")[col].median().sort_index().expanding(min_periods=1).median()
-            df[col] = df[col].fillna(df["trade_date"].map(date_median))
+            # Cross-sectional median per trade_date is observable at T close.
+            cross_sectional = df.groupby("trade_date")[col].transform("median")
+            df[col] = df[col].fillna(cross_sectional)
             nan_ratio = df[col].isna().mean()
             if nan_ratio > 0.3:
                 logger.warning(f"Feature {col} has {nan_ratio:.0%} NaN after filling — possible data issue")
-            df[col] = df[col].fillna(df[col].median() if not df[col].isna().all() else 0.0)
+            df[col] = df[col].fillna(0.0)
 
         if prediction_mode:
             df = df.dropna(subset=features)

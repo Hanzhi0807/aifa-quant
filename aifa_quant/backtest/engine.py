@@ -43,6 +43,9 @@ class BacktestEngine:
         rebalance_freq: int = 5,
         regime_ma_threshold: float = 0.0,
         industry_map: dict[str, str] | None = None,
+        st_symbols: set[str] | None = None,
+        weighting: str = "equal",  # "equal" | "qp"
+        optimizer: "MeanVarianceOptimizer | None" = None,
     ):
         if config is None:
             config = TradingConfig(
@@ -62,6 +65,14 @@ class BacktestEngine:
         self.rebalance_freq = config.rebalance_freq
         self.regime_ma_threshold = regime_ma_threshold
         self.industry_map = industry_map
+        # Symbols flagged ST (e.g. from stock_universe.name containing 'ST').
+        # Used to apply the 5% limit instead of 10%/20%.
+        self.st_symbols: set[str] = set(st_symbols) if st_symbols else set()
+        # Portfolio weighting mode: "equal" (default) or "qp" (mean-variance).
+        self.weighting = weighting
+        self.optimizer = optimizer
+        # Cached daily returns for covariance estimation (qp mode).
+        self._returns_cache: pd.DataFrame | None = None
 
         self.cash: float = self.initial_cash
         self.positions: dict[str, Position] = {}
@@ -129,6 +140,12 @@ class BacktestEngine:
 
         last_rebalance_idx: int | None = None
         pending_targets: set[str] | None = None
+        pending_scores: dict[str, float] = {}
+
+        # Pre-compute daily returns (wide form) for QP covariance estimation.
+        if self.weighting == "qp" and self.optimizer is not None:
+            px = quotes.pivot(index="trade_date", columns="symbol", values="close").sort_index()
+            self._returns_cache = px.pct_change()
 
         for i, date in enumerate(dates):
             day_quotes = self.quotes_by_date[date]
@@ -140,8 +157,12 @@ class BacktestEngine:
 
             # Execute the prior trading day's close signal at today's open.
             if pending_targets is not None:
-                self._rebalance(date, day_quotes, pending_targets, price_col="open")
+                self._rebalance(
+                    date, day_quotes, pending_targets, price_col="open",
+                    scores=pending_scores,
+                )
                 pending_targets = None
+                pending_scores = {}
 
             # Generate today's signal after today's data is known.
             if last_rebalance_idx is None or (i - last_rebalance_idx) >= self.rebalance_freq:
@@ -162,6 +183,9 @@ class BacktestEngine:
                     )
                     selected = signals[signals["selected"]]["symbol"].tolist()
                     pending_targets = set(selected)
+                    # Capture scores for QP weighting.
+                    score_col = "pred_score" if "pred_score" in signals.columns else "score"
+                    pending_scores = dict(zip(signals["symbol"], signals[score_col]))
                     last_rebalance_idx = i
 
             # Mark to market at the close.
@@ -184,15 +208,16 @@ class BacktestEngine:
         day_quotes: pd.DataFrame,
         target_symbols: set,
         price_col: str = "close",
+        scores: dict[str, float] | None = None,
     ) -> None:
-        """Rebalance portfolio to target_symbols with equal weights."""
+        """Rebalance portfolio to target_symbols with equal or QP weights."""
         # First, sell positions not in target.
         for sym in list(self.positions.keys()):
             if sym not in target_symbols:
                 self._sell_all(date, day_quotes, sym, price_col=price_col)
 
         # Determine targets that have execution price data today. New positions
-        # that are already limit-up are excluded before cash is allocated.
+        # that are already limit-up or suspended are excluded before cash is allocated.
         available_targets = []
         for sym in target_symbols:
             row = day_quotes[day_quotes["symbol"] == sym]
@@ -200,6 +225,9 @@ class BacktestEngine:
                 continue
             price = float(row.iloc[0][price_col])
             if pd.isna(price) or price <= 0:
+                continue
+            # Suspension: volume==0 → cannot trade.
+            if self._is_suspended(row):
                 continue
             prev_close = self._prev_close(sym)
             current_pos = self.positions.get(sym)
@@ -210,14 +238,19 @@ class BacktestEngine:
             return
 
         total_portfolio_value = self.cash + self._market_value(day_quotes)
-        target_value_per_stock = total_portfolio_value / len(available_targets)
+
+        # Compute target weights.
+        if self.weighting == "qp" and self.optimizer is not None and scores:
+            weights = self._qp_weights(available_targets, scores, date)
+        else:
+            weights = {sym: 1.0 / len(available_targets) for sym in available_targets}
 
         for sym in available_targets:
             row = day_quotes[day_quotes["symbol"] == sym]
             price = float(row.iloc[0][price_col])
-
+            target_value = total_portfolio_value * weights.get(sym, 0.0)
             # A-shares: lot size 100 shares
-            target_shares = int(target_value_per_stock / price / 100) * 100
+            target_shares = int(target_value / price / 100) * 100
             current_pos = self.positions.get(sym)
             current_shares = current_pos.shares if current_pos else 0
 
@@ -230,6 +263,38 @@ class BacktestEngine:
             elif target_shares < current_shares:
                 shares_to_sell = current_shares - target_shares
                 self._sell(date, sym, shares_to_sell, price, quote_row=row)
+
+    def _qp_weights(
+        self,
+        symbols: list[str],
+        scores: dict[str, float],
+        date: pd.Timestamp,
+    ) -> dict[str, float]:
+        """Compute QP weights for the given symbols at the given date."""
+        import pandas as pd
+        score_series = pd.Series({s: scores.get(s, 0.0) for s in symbols})
+        # Use returns up to `date` for covariance (no look-ahead).
+        if self._returns_cache is not None:
+            returns_df = self._returns_cache.loc[:date]
+        else:
+            returns_df = pd.DataFrame()
+        # Previous weights from current positions.
+        prev_w: dict[str, float] = {}
+        total_mv = self._market_value(self.quotes_by_date.get(date, pd.DataFrame())) or 1.0
+        for sym, pos in self.positions.items():
+            price = self._last_known_price.get(sym, pos.cost_basis)
+            prev_w[sym] = (pos.shares * price) / total_mv
+        prev_series = pd.Series(prev_w)
+        try:
+            w = self.optimizer.optimize(
+                score_series, returns_df,
+                prev_weights=prev_series,
+                industry_map=self.industry_map,
+            )
+            return {s: float(w.get(s, 0.0)) for s in symbols}
+        except Exception as e:  # pragma: no cover - defensive
+            # Fall back to equal weight if optimizer fails.
+            return {s: 1.0 / len(symbols) for s in symbols}
 
     def _buy(self, date: pd.Timestamp, symbol: str, shares: int, price: float) -> None:
         if shares <= 0:
@@ -336,27 +401,49 @@ class BacktestEngine:
         return float(row.iloc[0]["close"])
 
     @staticmethod
-    def _limit_up_ratio(symbol: str, quote_row: pd.DataFrame | None = None) -> float:
-        """Return the A-share upper-limit multiplier for a symbol."""
-        name = ""
-        if quote_row is not None and not quote_row.empty and "name" in quote_row.columns:
-            name = str(quote_row.iloc[0].get("name") or "")
-        code = symbol.split(".")[0]
-        if "ST" in name.upper():
-            return 1.045
-        if code.startswith(("300", "301", "688")):
-            return 1.195
-        return 1.095
+    def _is_suspended(quote_row: pd.DataFrame) -> bool:
+        """Detect suspension from a single-symbol quote row.
 
-    @staticmethod
-    def _limit_down_ratio(symbol: str, quote_row: pd.DataFrame | None = None) -> float:
-        """Return the A-share lower-limit multiplier for a symbol."""
+        A suspended day typically has volume==0 and zero high-low range.
+        We treat volume==0 (with a non-zero price) as suspended — AkShare
+        returns 0 volume for halts while still echoing the last close.
+        """
+        if quote_row.empty:
+            return False
+        row = quote_row.iloc[0]
+        vol = row.get("volume", None)
+        if vol is not None and not pd.isna(vol) and float(vol) == 0:
+            return True
+        return False
+
+    def _limit_up_ratio(self, symbol: str, quote_row: pd.DataFrame | None = None) -> float:
+        """Return the A-share upper-limit multiplier for a symbol.
+
+        ST precedence: explicit st_symbols set > name contains 'ST' > board code.
+        ST  → +5%, STAR/ChiNext (300/301/688) → +20%, otherwise → +10%.
+        """
+        if symbol in self.st_symbols:
+            return 1.05
         name = ""
         if quote_row is not None and not quote_row.empty and "name" in quote_row.columns:
             name = str(quote_row.iloc[0].get("name") or "")
         code = symbol.split(".")[0]
         if "ST" in name.upper():
-            return 0.955
+            return 1.05
         if code.startswith(("300", "301", "688")):
-            return 0.805
-        return 0.905
+            return 1.20
+        return 1.10
+
+    def _limit_down_ratio(self, symbol: str, quote_row: pd.DataFrame | None = None) -> float:
+        """Return the A-share lower-limit multiplier for a symbol."""
+        if symbol in self.st_symbols:
+            return 0.95
+        name = ""
+        if quote_row is not None and not quote_row.empty and "name" in quote_row.columns:
+            name = str(quote_row.iloc[0].get("name") or "")
+        code = symbol.split(".")[0]
+        if "ST" in name.upper():
+            return 0.95
+        if code.startswith(("300", "301", "688")):
+            return 0.80
+        return 0.90

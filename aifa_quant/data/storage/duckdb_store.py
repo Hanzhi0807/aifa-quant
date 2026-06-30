@@ -1,5 +1,6 @@
 """Local DuckDB storage for raw market data and features."""
 
+import logging
 import threading
 from pathlib import Path
 from typing import Any
@@ -9,14 +10,22 @@ import pandas as pd
 
 from ...config.settings import Settings
 
+logger = logging.getLogger(__name__)
+
+# Module-level write lock. DuckDB allows concurrent readers but serializes writes;
+# we guard all write paths through this lock to prevent "database is locked" errors
+# when daily_refresh and the web server run simultaneously.
+_WRITE_LOCK = threading.Lock()
+
 
 class DuckDBStore:
     """Simple DuckDB wrapper for quant data persistence."""
 
-    def __init__(self, settings: Settings | None = None):
+    def __init__(self, settings: Settings | None = None, read_only: bool = False):
         self.settings = settings or Settings()
         self.db_path = Path(self.settings.duckdb_path_abs)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self.read_only = read_only
         # One connection per thread to avoid DuckDB concurrency errors.
         self._local = threading.local()
 
@@ -24,10 +33,20 @@ class DuckDBStore:
     def conn(self) -> duckdb.DuckDBPyConnection:
         conn = getattr(self._local, "conn", None)
         if conn is None:
-            conn = duckdb.connect(str(self.db_path))
+            if self.read_only:
+                conn = duckdb.connect(str(self.db_path), read_only=True)
+            else:
+                conn = duckdb.connect(str(self.db_path))
+                self._init_tables(conn)
             self._local.conn = conn
-            self._init_tables(conn)
         return conn
+
+    def execute_write(self, sql: str, params: list[Any] | None = None) -> Any:
+        """Execute a write statement under the global write lock."""
+        with _WRITE_LOCK:
+            if params is not None:
+                return self.conn.execute(sql, params)
+            return self.conn.execute(sql)
 
     def _init_tables(self, conn: duckdb.DuckDBPyConnection) -> None:
         """Create core tables if they do not exist."""
@@ -37,6 +56,11 @@ class DuckDBStore:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN profile VARCHAR DEFAULT 'balanced'")
             except Exception:
                 pass  # column already exists or table doesn't exist yet
+
+        try:
+            conn.execute("ALTER TABLE paper_pending_orders ADD COLUMN profile VARCHAR DEFAULT 'balanced'")
+        except Exception:
+            pass
 
         conn.execute("""
             CREATE TABLE IF NOT EXISTS daily_quotes (
@@ -63,6 +87,24 @@ class DuckDBStore:
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         """)
+
+        # Safe migrations: add market-cap columns to stock_universe if missing.
+        for col, ddl in [
+            ("circulating_share", "DOUBLE"),
+            ("total_share", "DOUBLE"),
+            ("circulating_mv", "DOUBLE"),
+            ("total_mv", "DOUBLE"),
+            ("is_st", "BOOLEAN"),
+            ("mc_snapshot_date", "DATE"),
+            ("pe_ttm", "DOUBLE"),
+            ("pb_lyr", "DOUBLE"),
+            ("ps_ttm", "DOUBLE"),
+            ("dv_ratio", "DOUBLE"),
+        ]:
+            try:
+                conn.execute(f"ALTER TABLE stock_universe ADD COLUMN {col} {ddl}")
+            except Exception:
+                pass
 
         conn.execute("""
             CREATE TABLE IF NOT EXISTS fundamental_data (
@@ -139,6 +181,21 @@ class DuckDBStore:
             );
         """)
 
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS paper_pending_orders (
+                pending_id VARCHAR NOT NULL,
+                profile VARCHAR NOT NULL DEFAULT 'balanced',
+                signal_date DATE NOT NULL,
+                symbol VARCHAR NOT NULL,
+                side VARCHAR NOT NULL,
+                quantity BIGINT NOT NULL,
+                order_type VARCHAR NOT NULL,
+                reason VARCHAR,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (profile, pending_id)
+            );
+        """)
+
     def save_daily_quotes(self, df: pd.DataFrame) -> int:
         """Upsert daily quote data. Returns number of rows written."""
         if df.empty:
@@ -195,8 +252,8 @@ class DuckDBStore:
         return self.conn.execute(query, params).fetchdf()
 
     def load_stock_universe(self, symbols: list[str] | None = None) -> pd.DataFrame:
-        """Load stock universe metadata (name, industry, etc.) from local storage."""
-        query = "SELECT symbol, name, industry, list_date FROM stock_universe WHERE 1=1"
+        """Load stock universe metadata (name, industry, market cap, etc.)."""
+        query = "SELECT * FROM stock_universe WHERE 1=1"
         params: list[Any] = []
         if symbols:
             placeholders = ", ".join(["?"] * len(symbols))
@@ -204,6 +261,57 @@ class DuckDBStore:
             params.extend(symbols)
         query += " ORDER BY symbol"
         return self.conn.execute(query, params).fetchdf()
+
+    def update_market_caps(self, df: pd.DataFrame) -> int:
+        """Upsert circulating/total share, market cap, and valuation snapshot into stock_universe.
+
+        Expects columns: symbol, circulating_share, total_share, circulating_mv,
+        total_mv, is_st (optional), mc_snapshot_date (optional),
+        pe_ttm / pb_lyr / ps_ttm / dv_ratio (optional valuations).
+        Missing optional columns are filled with NULL.
+        """
+        if df.empty:
+            return 0
+        df = df.copy()
+        for col in ["circulating_share", "total_share", "circulating_mv", "total_mv",
+                    "pe_ttm", "pb_lyr", "ps_ttm", "dv_ratio"]:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+            else:
+                df[col] = pd.NA
+        if "is_st" not in df.columns:
+            df["is_st"] = df.get("name", "").apply(lambda x: "ST" in str(x).upper() if x else False)
+        if "mc_snapshot_date" not in df.columns:
+            df["mc_snapshot_date"] = pd.Timestamp.now().normalize().date()
+        df["mc_snapshot_date"] = pd.to_datetime(df["mc_snapshot_date"], errors="coerce").dt.date
+        df["updated_at"] = pd.Timestamp.now()
+
+        # Only keep columns we need for the UPDATE.
+        update_cols = ["symbol", "circulating_share", "total_share", "circulating_mv",
+                       "total_mv", "is_st", "mc_snapshot_date", "updated_at",
+                       "pe_ttm", "pb_lyr", "ps_ttm", "dv_ratio"]
+        update_df = df[[c for c in update_cols if c in df.columns]].copy()
+        self.conn.register("tmp_mc", update_df)
+        try:
+            self.conn.execute("""
+                UPDATE stock_universe AS t
+                SET circulating_share = s.circulating_share,
+                    total_share = s.total_share,
+                    circulating_mv = s.circulating_mv,
+                    total_mv = s.total_mv,
+                    is_st = s.is_st,
+                    mc_snapshot_date = s.mc_snapshot_date,
+                    pe_ttm = s.pe_ttm,
+                    pb_lyr = s.pb_lyr,
+                    ps_ttm = s.ps_ttm,
+                    dv_ratio = s.dv_ratio,
+                    updated_at = s.updated_at
+                FROM tmp_mc AS s
+                WHERE t.symbol = s.symbol;
+            """)
+        finally:
+            self.conn.unregister("tmp_mc")
+        return len(df)
 
     def get_max_trade_date(self, symbol: str) -> pd.Timestamp | None:
         """Return the latest stored trade date for a symbol."""
@@ -232,11 +340,16 @@ class DuckDBStore:
             if col not in df.columns:
                 df[col] = float("nan")
             df[col] = pd.to_numeric(df[col], errors="coerce")
-        self.conn.register("tmp_fundamental", df)
+        # Keep only the columns the table expects, in the right order.
+        ordered = df[["symbol", "report_date", "name", "pe_lyr", "pb", "pb_mrq",
+                      "roe_deducted", "roe_ttm", "roe_weighted", "roe_diluted", "ann_date"]].copy()
+        self.conn.register("tmp_fundamental", ordered)
         self.conn.execute("""
             INSERT OR REPLACE INTO fundamental_data
-            SELECT symbol, report_date, ann_date, name, pe_lyr, pb, pb_mrq,
-                   roe_deducted, roe_ttm, roe_weighted, roe_diluted, CURRENT_TIMESTAMP
+                (symbol, report_date, name, pe_lyr, pb, pb_mrq,
+                 roe_deducted, roe_ttm, roe_weighted, roe_diluted, ann_date)
+            SELECT symbol, report_date, name, pe_lyr, pb, pb_mrq,
+                   roe_deducted, roe_ttm, roe_weighted, roe_diluted, ann_date
             FROM tmp_fundamental;
         """)
         self.conn.unregister("tmp_fundamental")
@@ -408,9 +521,41 @@ class DuckDBStore:
 
     def clear_paper_state(self, profile: str = "balanced") -> None:
         """Truncate all paper trading tables for a profile."""
-        self.conn.execute("DELETE FROM paper_positions WHERE profile = ?", [profile])
-        self.conn.execute("DELETE FROM paper_orders WHERE profile = ?", [profile])
-        self.conn.execute("DELETE FROM paper_nav WHERE profile = ?", [profile])
+        with _WRITE_LOCK:
+            self.conn.execute("DELETE FROM paper_positions WHERE profile = ?", [profile])
+            self.conn.execute("DELETE FROM paper_orders WHERE profile = ?", [profile])
+            self.conn.execute("DELETE FROM paper_nav WHERE profile = ?", [profile])
+            self.conn.execute("DELETE FROM paper_pending_orders WHERE profile = ?", [profile])
+
+    def save_paper_pending_orders(self, df: pd.DataFrame, profile: str = "balanced") -> int:
+        if df.empty:
+            return 0
+        df = df.copy()
+        df["profile"] = profile
+        df["signal_date"] = pd.to_datetime(df["signal_date"], errors="coerce").dt.date
+        if "created_at" not in df.columns:
+            df["created_at"] = pd.Timestamp.now()
+        self.conn.register("tmp_pending", df)
+        self.conn.execute("""
+            INSERT OR REPLACE INTO paper_pending_orders
+                (profile, pending_id, signal_date, symbol, side, quantity, order_type, reason, created_at)
+            SELECT profile, pending_id, signal_date, symbol, side, quantity, order_type, reason, created_at
+            FROM tmp_pending;
+        """)
+        self.conn.unregister("tmp_pending")
+        return len(df)
+
+    def load_paper_pending_orders(self, profile: str = "balanced") -> pd.DataFrame:
+        return self.conn.execute(
+            "SELECT * FROM paper_pending_orders WHERE profile = ? ORDER BY signal_date",
+            [profile],
+        ).fetchdf()
+
+    def delete_paper_pending_order(self, pending_id: str, profile: str = "balanced") -> None:
+        self.conn.execute(
+            "DELETE FROM paper_pending_orders WHERE profile = ? AND pending_id = ?",
+            [profile, pending_id],
+        )
 
     def get_latest_trade_date(self) -> pd.Timestamp | None:
         """Return the latest trade_date stored in daily_quotes across all symbols."""

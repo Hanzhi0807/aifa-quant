@@ -202,6 +202,9 @@ def backtest(
     min_liquidity: float = typer.Option(
         5000.0, "--min-liquidity", help="Minimum 20-day average daily amount in 万元"
     ),
+    weighting: str = typer.Option(
+        "equal", "--weighting", help="Portfolio weighting: equal (default) or qp"
+    ),
 ):
     """Run backtest using trained model and TopK-Dropout strategy."""
     if profile:
@@ -309,14 +312,24 @@ def backtest(
     all_symbols = list(set(symbols + ["000300.SH"]))
     quotes = store.load_daily_quotes(all_symbols, start_date=start, end_date=end)
 
-    # Load industry map for concentration control
+    # Load industry map and ST flags for concentration control / limit ratios
     industry_map: dict[str, str] | None = None
+    st_symbols: set[str] = set()
     try:
-        universe = store.conn.execute("SELECT symbol, industry FROM stock_universe WHERE industry IS NOT NULL").fetchdf()
-        if not universe.empty:
+        universe = store.load_stock_universe()
+        if not universe.empty and "industry" in universe.columns:
             industry_map = dict(zip(universe["symbol"], universe["industry"]))
+        if "is_st" in universe.columns:
+            st_symbols = set(universe.loc[universe["is_st"].astype(bool), "symbol"].tolist())
     except Exception:
         pass
+
+    # Warn if corr_threshold has no effect in non-rolling mode
+    if not rolling and corr_threshold is not None and corr_threshold < 1.0:
+        print(
+            f"[yellow]警告: --corr-threshold={corr_threshold} 在非 --rolling 模式下不生效。"
+            "相关性筛选仅在滚动训练窗口内执行。请用 --rolling 或在 train 命令中筛选。[/yellow]"
+        )
 
     # Determine regime threshold from profile
     regime_threshold = 0.0
@@ -340,11 +353,19 @@ def backtest(
         print(f"[red]未知策略: {strategy_name}[/red]")
         raise typer.Exit(code=1)
 
-    # Run backtest with regime filter and industry map
+    # Run backtest with regime filter, industry map and ST symbols
+    optimizer = None
+    if weighting == "qp":
+        from ..strategy.optimizer import MeanVarianceOptimizer, OptimizerConfig
+        optimizer = MeanVarianceOptimizer(OptimizerConfig())
+        print("[cyan]启用 QP 均值-方差优化器[/cyan]")
     engine = BacktestEngine(
         initial_cash=initial_cash, rebalance_freq=freq,
         regime_ma_threshold=regime_threshold,
         industry_map=industry_map,
+        st_symbols=st_symbols,
+        weighting=weighting,
+        optimizer=optimizer,
     )
     equity = engine.run(quotes, features, model, strategy, start_date=start, end_date=end)
 
@@ -956,6 +977,9 @@ def paper_run(
         "balanced", "--profile", help="策略 profile（aggressive/balanced/conservative/growth/value）"
     ),
     all_profiles: bool = typer.Option(False, "--all-profiles", help="依次运行所有策略 profile"),
+    weighting: str = typer.Option(
+        "vol", "--weighting", help="仓位加权: vol (波动率目标,默认) / qp (均值方差优化) / equal"
+    ),
 ):
     """运行一次模拟交易循环。"""
     from ..strategy.profiles import list_profiles
@@ -981,6 +1005,7 @@ def paper_run(
             include_sentiment=include_sentiment,
             corr_threshold=corr_threshold,
             profile=pf.id,
+            weighting=weighting,
         )
 
         try:

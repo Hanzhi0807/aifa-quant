@@ -282,6 +282,96 @@ def push_shap_summary(client, csv_path: str | Path, model_date: str | None = Non
     print(f"[SHAP] Pushed {len(records)} features for model_date={model_date}")
 
 
+def push_stock_shap(client, shap_df: pd.DataFrame, prediction_date: str, profile: str = "balanced") -> None:
+    """Push per-stock SHAP values to the stock_shap table.
+
+    shap_df must have columns: symbol, feature, shap_value.
+    """
+    if shap_df.empty:
+        print("[STOCK_SHAP] Empty frame, nothing to push")
+        return
+    # Clear old data for this date+profile.
+    client.table("stock_shap").delete().eq("prediction_date", prediction_date).eq("profile", profile).execute()
+    records = [
+        {
+            "symbol": str(row["symbol"]),
+            "feature": str(row["feature"]),
+            "shap_value": float(row["shap_value"]),
+            "prediction_date": prediction_date,
+            "profile": profile,
+        }
+        for _, row in shap_df.iterrows()
+    ]
+    client.table("stock_shap").insert(records).execute()
+    print(f"[STOCK_SHAP] Pushed {len(records)} rows for {prediction_date} / {profile}")
+
+
+def push_portfolio_risk(
+    client,
+    profile: str,
+    calc_date: str,
+    industry_concentration: dict,
+    market_cap_quantile: dict,
+    beta: float,
+    style_exposures: dict,
+    industry_cap_breach: bool,
+    industry_cap_threshold: float = 0.25,
+) -> None:
+    """Push portfolio risk attribution for one profile/date."""
+    client.table("portfolio_risk").upsert({
+        "profile": profile,
+        "calc_date": calc_date,
+        "industry_concentration": industry_concentration,
+        "market_cap_quantile": market_cap_quantile,
+        "beta": beta,
+        "style_exposures": style_exposures,
+        "industry_cap_breach": industry_cap_breach,
+        "industry_cap_threshold": industry_cap_threshold,
+    }, on_conflict="profile,calc_date").execute()
+    print(f"[RISK] Pushed risk for {profile} / {calc_date}")
+
+
+def push_paper_metrics(
+    client,
+    profile: str,
+    calc_date: str,
+    metrics: dict,
+) -> None:
+    """Push paper-trading metrics snapshot (cumulative/annual/dd/sharpe/turnover/credibility)."""
+    client.table("paper_metrics").upsert({
+        "profile": profile,
+        "calc_date": calc_date,
+        "cumulative_return": metrics.get("cumulative_return"),
+        "annual_return": metrics.get("annual_return"),
+        "max_drawdown": metrics.get("max_drawdown"),
+        "sharpe": metrics.get("sharpe"),
+        "monthly_turnover": metrics.get("monthly_turnover"),
+        "backtest_method": metrics.get("backtest_method", "rolling"),
+        "pbo": metrics.get("pbo"),
+        "oos_rank_ic": metrics.get("oos_rank_ic"),
+    }, on_conflict="profile,calc_date").execute()
+    print(f"[METRICS] Pushed metrics for {profile} / {calc_date}")
+
+
+def push_signal_run(
+    client,
+    run_date: str,
+    profile: str,
+    model_version: str | None,
+    status: str,
+    metrics: dict,
+) -> None:
+    """Push a signal-run metadata record (used by the dashboard's model-version badge)."""
+    client.table("signal_runs").insert({
+        "run_date": run_date,
+        "profile": profile,
+        "model_version": model_version,
+        "status": status,
+        "metrics": metrics,
+    }).execute()
+    print(f"[RUN] Pushed signal_run for {profile} / {run_date}")
+
+
 def push_weekly_report(client, md_path: str | Path) -> None:
     """Push a weekly report markdown file to Supabase weekly_reports table."""
     md_path = Path(md_path)

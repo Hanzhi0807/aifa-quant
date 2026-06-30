@@ -1,5 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
+import { DailyActionCard, type ActionRow } from './DailyActionCard'
+import { NavStats, type NavStat } from './NavStats'
+import { RiskExposure, type RiskMetrics } from './RiskExposure'
+import { BacktestCredibility, type CredibilityMetrics } from './BacktestCredibility'
+import { computeFreshness } from '../lib/freshness'
 import type { User } from '@supabase/supabase-js'
 
 interface Signal {
@@ -259,6 +264,60 @@ export function Dashboard({ user: _user }: { user: User }) {
 
   const currentProfile = PROFILES.find((p) => p.id === activeProfile)!
 
+  // Derive action rows from portfolio (action = buy/sell/hold based on action field).
+  const actionRows: ActionRow[] = useMemo(() => {
+    return portfolio.map((p) => {
+      const sig = signals.find((s) => s.symbol === p.symbol)
+      const action: ActionRow['action'] = p.action === 'buy' ? 'buy' : p.action === 'sell' ? 'sell' : 'hold'
+      return {
+        symbol: p.symbol,
+        name: p.name,
+        action,
+        target_weight: p.weight,
+        current_weight: p.weight,
+        model_score: sig?.score ?? 0,
+        executable: true,
+        block_reason: null,
+        reason: p.reason,
+      }
+    })
+  }, [portfolio, signals])
+
+  // Compute nav stats from navData.
+  const navStat: NavStat | null = useMemo(() => {
+    if (navData.length < 2) return null
+    const vals = navData.map((d) => d.nav)
+    const cum = vals[vals.length - 1] / vals[0] - 1
+    const years = vals.length / 252
+    const annual = years > 0 ? Math.pow(1 + cum, 1 / years) - 1 : 0
+    const rets: number[] = []
+    for (let i = 1; i < vals.length; i++) rets.push((vals[i] - vals[i - 1]) / vals[i - 1])
+    const mean = rets.reduce((s, r) => s + r, 0) / (rets.length || 1)
+    const std = Math.sqrt(rets.reduce((s, r) => s + (r - mean) ** 2, 0) / (rets.length || 1)) || 1e-9
+    const sharpe = (mean / std) * Math.sqrt(252)
+    let peak = vals[0]
+    let maxDD = 0
+    for (const v of vals) {
+      peak = Math.max(peak, v)
+      maxDD = Math.min(maxDD, (v - peak) / peak)
+    }
+    return { cumulative_return: cum, annual_return: annual, max_drawdown: maxDD, sharpe }
+  }, [navData])
+
+  const dailyChange = navData.length >= 2
+    ? (navData[navData.length - 1].nav - navData[navData.length - 2].nav) / navData[navData.length - 2].nav
+    : 0
+  const cumChange = navData.length >= 1 ? navData[navData.length - 1].nav / navData[0].nav - 1 : 0
+  const latestNav = navData.length >= 1 ? navData[navData.length - 1].nav : 0
+  const fresh = computeFreshness(signalDate || null)
+  // Credibility: rolling if navData spans enough, simplified heuristic.
+  const credibility: CredibilityMetrics = {
+    backtest_method: 'rolling',
+    train_test_overlap_days: 0,
+    pbo: null,
+    oos_rank_ic: null,
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -289,6 +348,40 @@ export function Dashboard({ user: _user }: { user: User }) {
             {error}
           </div>
         )}
+
+        {fresh.level === 'expired' && signalDate && (
+          <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-300">
+            ⚠️ 数据可能已过期（最后信号日期 {signalDate}，已 {fresh.daysStale} 天未更新），请联系管理员。
+          </div>
+        )}
+
+        {/* Daily Action Card — top of dashboard */}
+        {signalDate && (
+          <DailyActionCard
+            tradeDate={signalDate}
+            lastPush={signalDate}
+            modelVersion={null}
+            profile={activeProfile}
+            marketState={null}
+            nav={latestNav}
+            dailyChange={dailyChange}
+            cumChange={cumChange}
+            rows={actionRows}
+          />
+        )}
+
+        {/* Nav stats */}
+        <NavStats stat={navStat} />
+
+        {/* Credibility tag row */}
+        <div className="flex items-center gap-2 text-xs">
+          <span className="text-[var(--text-muted)]">回测可信度：</span>
+          <BacktestCredibility metrics={credibility} />
+        </div>
+
+        {/* Risk exposure (data may be null until backend pushes) */}
+        <RiskExposure metrics={null} />
+
 
         {/* Profile selector */}
         <section>
