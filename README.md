@@ -371,7 +371,7 @@ docker compose up --build -d
 ## 注意事项
 
 - **情绪因子默认关闭**：需要时可使用 `--sentiment-source free` 通过东方财富/AkShare 获取免费情绪数据。
-- **成分股非历史真实**：AkShare 返回当前最新成分股，非 point-in-time，长周期回测存在幸存者偏差。
+- **成分股非历史真实（幸存者偏差）**：当前 `AkShareAdapter.get_stock_universe` 返回的是**当前最新成分股**，并非历史真实成分股（非 point-in-time）。因此长周期历史回测可能受到幸存者偏差影响，回测结果**仅用于框架功能验证与策略研究，不能直接等同于未来实盘收益**。
 - **模型需要重训**：现有模型基于沪深 300 训练，扩大到中证 500/1000 后建议用新 universe 重新训练。
 - **DuckDB 锁**：Web 查询后会正确关闭连接；若 dev server 进程异常未退出，仍可能锁库，Windows 下请手动结束对应 Node/Python 进程。
 - **数据不提交 Git**：`data_store/` 与 `*.duckdb` 已加入 `.gitignore`。

@@ -19,11 +19,13 @@ class TopKDropoutStrategy(BaseStrategy):
         rebalance_freq: int = 5,
         dropout_threshold: int | None = None,
         max_industry_pct: float = 0.30,
+        min_liquidity_wan: float | None = None,
     ):
         self.top_k = top_k
         self.rebalance_freq = rebalance_freq
         self.dropout_threshold = dropout_threshold or top_k * 2
         self.max_industry_pct = max_industry_pct
+        self.min_liquidity_wan = min_liquidity_wan
 
     def generate_signals(
         self,
@@ -44,6 +46,12 @@ class TopKDropoutStrategy(BaseStrategy):
         day_df = features[features["trade_date"] == current_date].copy()
         if day_df.empty:
             return pd.DataFrame(columns=["symbol", "score", "rank", "selected"])
+
+        if (
+            self.min_liquidity_wan is not None
+            and "avg_amount_20d" in day_df.columns
+        ):
+            day_df = day_df[day_df["avg_amount_20d"] >= self.min_liquidity_wan]
 
         day_df = day_df.sort_values("pred_score", ascending=False).reset_index(drop=True)
         day_df["rank"] = day_df.index + 1

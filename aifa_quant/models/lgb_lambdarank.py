@@ -17,6 +17,8 @@ from .base import BaseModel
 class LGBLambdaRankModel(BaseModel):
     """LightGBM LambdaRank model that learns to rank stocks within each date."""
 
+    is_ranker = True
+
     def __init__(self, params: dict | None = None):
         self.params = params or {
             "objective": "lambdarank",

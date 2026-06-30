@@ -11,10 +11,10 @@ from typing import Any
 
 import pandas as pd
 
-logger = logging.getLogger(__name__)
-
 from ...config.settings import Settings
 from ...core.interfaces import BaseDataSource
+
+logger = logging.getLogger(__name__)
 
 
 class AkShareAdapter(BaseDataSource):

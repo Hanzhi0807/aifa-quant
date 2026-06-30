@@ -1,0 +1,34 @@
+name: Daily Signal Push
+
+on:
+  schedule:
+    # UTC 09:30 = Beijing 17:30 (after market close + data delay)
+    - cron: '30 9 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      date:
+        description: 'Target date (YYYY-MM-DD)'
+        required: false
+
+jobs:
+  push-signals:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install -e .
+          pip install supabase
+
+      - name: Push signals to Supabase
+        run: |
+          python scripts/push_to_supabase.py ${{ github.event.inputs.date && format('--date {0}', github.event.inputs.date) || '' }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

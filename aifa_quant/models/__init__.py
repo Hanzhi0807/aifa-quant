@@ -1,9 +1,11 @@
 from .ensemble import EnsembleModel
 from .lgb_lambdarank import LGBLambdaRankModel
 from .lgb_ranker import LGBRankerModel
+from .xgb_ranker import XGBRankerModel
 
 __all__ = [
-    "LGBRankerModel",
     "LGBLambdaRankModel",
+    "LGBRankerModel",
+    "XGBRankerModel",
     "EnsembleModel",
 ]

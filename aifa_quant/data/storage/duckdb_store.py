@@ -194,6 +194,17 @@ class DuckDBStore:
         query += " ORDER BY symbol, trade_date"
         return self.conn.execute(query, params).fetchdf()
 
+    def load_stock_universe(self, symbols: list[str] | None = None) -> pd.DataFrame:
+        """Load stock universe metadata (name, industry, etc.) from local storage."""
+        query = "SELECT symbol, name, industry, list_date FROM stock_universe WHERE 1=1"
+        params: list[Any] = []
+        if symbols:
+            placeholders = ", ".join(["?"] * len(symbols))
+            query += f" AND symbol IN ({placeholders})"
+            params.extend(symbols)
+        query += " ORDER BY symbol"
+        return self.conn.execute(query, params).fetchdf()
+
     def get_max_trade_date(self, symbol: str) -> pd.Timestamp | None:
         """Return the latest stored trade date for a symbol."""
         result = self.conn.execute(

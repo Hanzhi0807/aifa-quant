@@ -28,21 +28,56 @@ class EnsembleModel:
         - mean: equal-weight average
         - median: median score per stock
         - rank_mean: average of normalized ranks
+
+    Dynamic ensemble weights can be updated from recent validation RankIC
+    values via ``update_weights_from_ic``. When dynamic weights are available
+    they override the static config weights for ``weighted_mean``.
     """
 
-    def __init__(self, models: list[tuple[Any, float]], method: str = "weighted_mean"):
+    def __init__(
+        self,
+        models: list[tuple[Any, float]],
+        method: str = "weighted_mean",
+        rolling_ic_window: int = 6,
+        weights_path: str | Path | None = None,
+        model_names: list[str] | None = None,
+    ):
         self.models = models
         self.method = method
+        self.rolling_ic_window = rolling_ic_window
+        self.weights_path = Path(weights_path) if weights_path else None
+        self.model_names = (
+            list(model_names)
+            if model_names is not None
+            else [f"model_{i}" for i in range(len(models))]
+        )
+        if len(self.model_names) != len(self.models):
+            raise ValueError("model_names length must match models length")
+
         self._feature_names: list[str] | None = None
+        self.ic_history: dict[str, list[float]] = {}
+        self.dynamic_weights: dict[str, float] | None = None
+
+        if self.weights_path:
+            self._load_weights()
 
     @classmethod
-    def from_config(cls, config_path: str | Path, registry_dir: Path | None = None) -> EnsembleModel:
+    def from_config(
+        cls,
+        config_path: str | Path,
+        registry_dir: Path | None = None,
+        weights_path: str | Path | None = None,
+    ) -> EnsembleModel:
         config_path = Path(config_path)
         with open(config_path, encoding="utf-8") as f:
             config = json.load(f)
 
         method = config.get("method", "weighted_mean")
+        rolling_ic_window = config.get("rolling_ic_window", 6)
+        weights_path = weights_path or config.get("weights_path")
+
         models: list[tuple[Any, float]] = []
+        model_names: list[str] = []
         for item in config.get("models", []):
             name = item.get("name", item.get("path", ""))
             weight = float(item.get("weight", 1.0))
@@ -62,9 +97,34 @@ class EnsembleModel:
             model = model_cls()
             model.load(str(model_path))
             models.append((model, weight))
+            model_names.append(name)
         if not models:
             raise ValueError("Ensemble config must contain at least one model")
-        return cls(models, method=method)
+        return cls(
+            models,
+            method=method,
+            rolling_ic_window=rolling_ic_window,
+            weights_path=weights_path,
+            model_names=model_names,
+        )
+
+    def _load_weights(self) -> None:
+        if not self.weights_path or not self.weights_path.exists():
+            return
+        try:
+            with open(self.weights_path, encoding="utf-8") as f:
+                weights = json.load(f)
+            if isinstance(weights, dict):
+                self.dynamic_weights = {str(k): float(v) for k, v in weights.items()}
+        except Exception:
+            self.dynamic_weights = None
+
+    def _save_weights(self) -> None:
+        if not self.weights_path or self.dynamic_weights is None:
+            return
+        self.weights_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.weights_path, "w", encoding="utf-8") as f:
+            json.dump(self.dynamic_weights, f, ensure_ascii=False, indent=2)
 
     @property
     def feature_names(self) -> list[str]:
@@ -75,13 +135,47 @@ class EnsembleModel:
             self._feature_names = sorted(names)
         return self._feature_names
 
+    def update_weights_from_ic(self, ic_map: dict[str, float]) -> None:
+        """Update dynamic ensemble weights from a fresh validation RankIC map.
+
+        For each submodel the recent ``rolling_ic_window`` validation IC values
+        are used to compute mean / std. Weights are set via softmax(mean/std).
+        If std is zero the mean is used directly as the score.
+        """
+        for name, ic in ic_map.items():
+            if name not in self.model_names:
+                continue
+            self.ic_history.setdefault(name, []).append(float(ic))
+
+        scores: dict[str, float] = {}
+        for name in self.model_names:
+            values = self.ic_history.get(name, [])
+            recent = values[-self.rolling_ic_window :] if values else []
+            mean = float(np.mean(recent)) if recent else 0.0
+            std = float(np.std(recent, ddof=0)) if recent else 0.0
+            scores[name] = mean if std == 0 else mean / std
+
+        score_arr = np.array(list(scores.values()), dtype=float)
+        if score_arr.size == 0:
+            self.dynamic_weights = None
+            return
+
+        # Numerically stable softmax
+        shifted = score_arr - np.max(score_arr)
+        exp = np.exp(shifted)
+        weights = exp / exp.sum()
+        self.dynamic_weights = dict(zip(scores.keys(), weights.tolist()))
+
+        if self.weights_path:
+            self._save_weights()
+
     def predict(self, X: pd.DataFrame) -> np.ndarray:
         if not self.models:
             raise ValueError("No models loaded")
         X = X.copy()
         scores_list: list[np.ndarray] = []
         weights: list[float] = []
-        for model, weight in self.models:
+        for idx, (model, config_weight) in enumerate(self.models):
             cols = [c for c in model.feature_names if c in X.columns]
             if not cols:
                 continue
@@ -91,7 +185,12 @@ class EnsembleModel:
             pred = pd.Series(index=X.index, dtype=float)
             pred.loc[sub.index] = model.predict(sub)
             scores_list.append(pred.values)
-            weights.append(weight)
+
+            name = self.model_names[idx]
+            if self.dynamic_weights is not None and name in self.dynamic_weights:
+                weights.append(self.dynamic_weights[name])
+            else:
+                weights.append(config_weight)
         if not scores_list:
             return np.zeros(len(X))
         scores = np.vstack(scores_list)
@@ -122,7 +221,12 @@ class EnsembleModel:
     def feature_importance(self) -> dict[str, float] | None:
         agg: dict[str, float] = {}
         total_weight = 0.0
-        for model, weight in self.models:
+        for idx, (model, config_weight) in enumerate(self.models):
+            weight = (
+                self.dynamic_weights.get(self.model_names[idx], config_weight)
+                if self.dynamic_weights
+                else config_weight
+            )
             fi = model.feature_importance
             if fi is None:
                 continue

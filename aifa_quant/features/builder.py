@@ -1,10 +1,9 @@
 """Feature builder: raw quotes -> model features + labels."""
 
 import logging
+import warnings
 
 import pandas as pd
-
-logger = logging.getLogger(__name__)
 
 from ..config.settings import Settings
 from ..data.adapters import AkShareAdapter, EDBMCPAdapter, StockMCPAdapter, build_free_sentiment_features
@@ -13,7 +12,9 @@ from ..data.storage import DuckDBStore
 from ..data.validation import DataValidator
 from .alpha_factors import compute_alpha_factors, list_alpha_factors
 from .fundamental import merge_fundamental_to_daily
+from .labels import compute_labels
 from .macro import merge_macro_to_daily
+from .neutralization import neutralize_cross_section
 from .sentiment import build_sentiment_features, merge_sentiment_to_daily
 from .technical import (
     compute_atr,
@@ -24,6 +25,8 @@ from .technical import (
     compute_volatility,
     compute_volume_features,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class FeatureBuilder:
@@ -65,6 +68,11 @@ class FeatureBuilder:
         start_date: str | None = None,
         end_date: str | None = None,
         label_horizon: int = 5,
+        label_type: str = "excess_quantile",
+        drop_middle: bool = False,
+        pt_mult: float = 2.0,
+        sl_mult: float = 1.0,
+        max_holding: int = 10,
         nan_threshold: float = 0.5,
         include_fundamental: bool = True,
         include_macro: bool = True,
@@ -72,6 +80,7 @@ class FeatureBuilder:
         sentiment_source: str = "ifind",
         include_alpha: bool = True,
         alpha_factors: list[str] | None = None,
+        neutralize: bool = True,
         corr_threshold: float | None = 0.95,
         cache_only: bool = False,
         prediction_mode: bool = False,
@@ -80,6 +89,11 @@ class FeatureBuilder:
 
         Args:
             label_horizon: Number of days ahead for return label.
+            label_type: Label scheme: 'excess_quantile' (default), 'triple_barrier', 'binary'.
+            drop_middle: For excess_quantile; drop middle quantile of each cross-section.
+            pt_mult: For triple_barrier; profit-taking ATR multiplier.
+            sl_mult: For triple_barrier; stop-loss ATR multiplier.
+            max_holding: For triple_barrier; maximum holding period in days.
             nan_threshold: Drop feature columns with NaN ratio above this threshold.
             include_fundamental: Whether to merge PE/PB/ROE ratios from iFind.
             include_macro: Whether to merge macroeconomic indicators.
@@ -88,6 +102,8 @@ class FeatureBuilder:
             sentiment_source: "ifind" (default) or "free" (Eastmoney via AkShare).
             include_alpha: Whether to include Alpha101/191 style factors.
             alpha_factors: Optional subset of alpha factor names; None means all registered.
+            neutralize: Whether to neutralize alpha factors and momentum/volatility factors
+                against industry dummies and log(market_cap).
             corr_threshold: Retained for CLI compatibility; rolling trainers apply feature selection inside each train window.
         """
         print("[yellow]正在从 DuckDB 加载原始日线数据...[/yellow]")
@@ -100,6 +116,24 @@ class FeatureBuilder:
         for col in ["open", "high", "low", "volume", "amount"]:
             if col not in raw.columns:
                 raw[col] = float("nan")
+
+        # Ensure auxiliary columns needed for neutralization are available
+        if neutralize:
+            if "market_cap" not in raw.columns:
+                close = pd.to_numeric(raw["close"], errors="coerce")
+                if "outstanding_share" in raw.columns:
+                    raw["market_cap"] = close * pd.to_numeric(raw["outstanding_share"], errors="coerce")
+                elif "total_shares" in raw.columns:
+                    raw["market_cap"] = close * pd.to_numeric(raw["total_shares"], errors="coerce")
+            if "industry" not in raw.columns:
+                try:
+                    universe = self.store.load_stock_universe()
+                    if not universe.empty and "industry" in universe.columns:
+                        raw = raw.merge(universe[["symbol", "industry"]], on="symbol", how="left")
+                    else:
+                        warnings.warn("Industry data not available in stock_universe; skipping industry dummies.")
+                except Exception as e:
+                    warnings.warn(f"Unable to load industry data: {e}; skipping industry dummies.")
 
         # Optionally merge fundamental data
         if include_fundamental:
@@ -247,13 +281,28 @@ class FeatureBuilder:
             print(f"[yellow]正在构建 Alpha101/191 因子（{len(alpha_factors or list_alpha_factors())} 个）...[/yellow]")
             df = compute_alpha_factors(df, selected=alpha_factors)
 
+        if neutralize:
+            print("[yellow]正在进行行业与市值中性化...[/yellow]")
+            alpha_names = [name for name in (alpha_factors or list_alpha_factors()) if name in df.columns]
+            tech_candidates = [c for c in df.columns if "momentum" in c or "volatility" in c]
+            neutral_cols = list(dict.fromkeys(alpha_names + tech_candidates))
+            if neutral_cols:
+                df = neutralize_cross_section(df, neutral_cols)
+            # Keep industry / market_cap for downstream profile scoring; they are
+            # explicitly excluded from model feature columns below.
+
         print(f"[green]特征矩阵形状: {df.shape}[/green]")
 
         if not prediction_mode:
-            # Primary label: future N-day return
-            df["label_return"] = df.groupby("symbol")["close"].shift(-label_horizon) / df["close"] - 1
-            # Binary label: will future return be positive?
-            df["label_binary"] = (df["label_return"] > 0).astype(int)
+            df = compute_labels(
+                df,
+                label_type=label_type,
+                label_horizon=label_horizon,
+                drop_middle=drop_middle,
+                pt_mult=pt_mult,
+                sl_mult=sl_mult,
+                max_holding=max_holding,
+            )
 
         # Drop feature columns with too many NaNs
         features = self.feature_columns(df)
@@ -279,7 +328,7 @@ class FeatureBuilder:
             df = df.dropna(subset=features)
         else:
             # Drop rows with missing label or any remaining NaN in features
-            df = df.dropna(subset=["label_return"] + features)
+            df = df.dropna(subset=["label_rank"] + features)
         return df
 
     def feature_columns(self, df: pd.DataFrame) -> list[str]:
@@ -300,6 +349,11 @@ class FeatureBuilder:
             "ann_date",
             "label_return",
             "label_binary",
+            "label_rank",
+            "label_excess",
+            "label_outcome",
+            "industry",
+            "market_cap",
         }
         cols = [c for c in df.columns if c not in exclude]
         # Exclude future returns (data leakage)

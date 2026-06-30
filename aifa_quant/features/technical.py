@@ -100,6 +100,8 @@ def compute_volume_features(df: pd.DataFrame, windows: list[int] = None) -> pd.D
         df[f"volume_ma_{w}"] = df["volume"].rolling(window=w, min_periods=1).mean()
         df[f"volume_ratio_{w}"] = df["volume"] / df[f"volume_ma_{w}"]
     df["amount_close_ratio"] = df["amount"] / df["close"]
+    if "avg_amount_20d" not in df.columns:
+        df["avg_amount_20d"] = df["amount"].rolling(window=20, min_periods=1).mean() / 10_000.0
     return df
 
 

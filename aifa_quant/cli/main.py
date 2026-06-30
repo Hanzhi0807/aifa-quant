@@ -20,7 +20,7 @@ from ..data.adapters import AkShareAdapter, IndexMCPAdapter, StockMCPAdapter, Tu
 from ..data.pipeline import DailyUpdatePipeline
 from ..data.storage import DuckDBStore
 from ..features import FeatureBuilder
-from ..models import EnsembleModel, LGBLambdaRankModel, LGBRankerModel
+from ..models import EnsembleModel, LGBLambdaRankModel, LGBRankerModel, XGBRankerModel
 from ..models.registry import ModelRegistry
 from ..models.rolling_trainer import RollingTrainer
 from ..paper_trading import PaperTradingEngine
@@ -166,12 +166,19 @@ def backtest(
     ),
     initial_cash: float = typer.Option(1_000_000.0, "--cash", help="Initial capital"),
     rolling: bool = typer.Option(False, "--rolling", help="Use rolling window training to avoid look-ahead bias"),
+    rolling_model: str = typer.Option("lambdarank", "--rolling-model", help="Model type for rolling training: classifier, lambdarank, xgboost"),
+    label_type: str = typer.Option("excess_quantile", "--label-type", help="Label scheme for rolling training: binary, excess_quantile, triple_barrier"),
+    drop_middle: bool = typer.Option(False, "--drop-middle", help="Drop middle quantile for excess_quantile labels"),
+    pt_mult: float = typer.Option(2.0, "--pt-mult", help="Profit-taking ATR multiplier for triple_barrier"),
+    sl_mult: float = typer.Option(1.0, "--sl-mult", help="Stop-loss ATR multiplier for triple_barrier"),
+    max_holding: int = typer.Option(10, "--max-holding", help="Max holding days for triple_barrier"),
     benchmark: str = typer.Option("000300.SH", "--benchmark", help="Benchmark index symbol"),
     include_fundamental: bool = typer.Option(
         True, "--fundamental/--no-fundamental", help="Include fundamental factors (PE/PB/ROE)"
     ),
     include_macro: bool = typer.Option(True, "--macro/--no-macro", help="Include macro factors (CPI/PMI/M2)"),
     include_sentiment: bool = typer.Option(True, "--sentiment/--no-sentiment", help="Include news sentiment factors"),
+    neutralize: bool = typer.Option(True, "--neutralize/--no-neutralize", help="Neutralize alpha/momentum/volatility factors against industry and market cap"),
     corr_threshold: float = typer.Option(
         0.95,
         "--corr-threshold",
@@ -191,6 +198,9 @@ def backtest(
     ),
     save_paper_positions: bool = typer.Option(
         False, "--save-paper-positions", help="Write final positions to paper_positions for the selected profile"
+    ),
+    min_liquidity: float = typer.Option(
+        5000.0, "--min-liquidity", help="Minimum 20-day average daily amount in 万元"
     ),
 ):
     """Run backtest using trained model and TopK-Dropout strategy."""
@@ -232,8 +242,14 @@ def backtest(
         include_fundamental=include_fundamental,
         include_macro=include_macro,
         include_sentiment=include_sentiment,
+        neutralize=neutralize,
         corr_threshold=corr_threshold,
         cache_only=cache_only,
+        label_type=label_type if rolling else "excess_quantile",
+        drop_middle=drop_middle if rolling else False,
+        pt_mult=pt_mult,
+        sl_mult=sl_mult,
+        max_holding=max_holding,
     )
     if features.empty:
         print("[red]没有可用特征数据[/red]")
@@ -244,7 +260,23 @@ def backtest(
     model = None
     if rolling:
         print("[yellow]正在滚动训练生成 out-of-sample 预测...[/yellow]")
-        trainer = RollingTrainer(train_window_days=252 * 2, min_train_samples=500, settings=settings, label_horizon=5, corr_threshold=corr_threshold)
+        model_factory = {
+            "classifier": LGBRankerModel,
+            "lambdarank": LGBLambdaRankModel,
+            "xgboost": XGBRankerModel,
+        }.get(rolling_model)
+        if model_factory is None:
+            print(f"[red]未知滚动模型类型: {rolling_model}[/red]")
+            raise typer.Exit(code=1)
+        trainer = RollingTrainer(
+            model_factory=model_factory,
+            train_window_days=252 * 2,
+            min_train_samples=500,
+            settings=settings,
+            label_horizon=5,
+            label_type=label_type,
+            corr_threshold=corr_threshold,
+        )
         # Align retraining dates with rebalance frequency to avoid training every day.
         all_dates = sorted(features["trade_date"].unique())
         rebalance_dates = all_dates[::freq]
@@ -302,6 +334,7 @@ def backtest(
             top_k=top_k, rebalance_freq=freq,
             dropout_threshold=dropout_threshold,
             max_industry_pct=max_industry_pct,
+            min_liquidity_wan=min_liquidity,
         )
     else:
         print(f"[red]未知策略: {strategy_name}[/red]")
@@ -336,7 +369,7 @@ def backtest(
     except Exception as e:
         print(f"[yellow]获取基准 {benchmark} 失败: {e}[/yellow]")
 
-    metrics = compute_metrics(equity, benchmark_curve=bench_df)
+    metrics = compute_metrics(equity, benchmark_curve=bench_df, trades=engine.trades, features=features)
     print("\n[bold]回测绩效[/bold]")
     table = Table(title="Performance Metrics")
     table.add_column("指标", style="cyan")
@@ -351,15 +384,40 @@ def backtest(
         table.add_row("基准总收益", f"{metrics['benchmark_total_return']:.2%}")
         table.add_row("超额收益", f"{metrics['excess_return']:.2%}")
         table.add_row("超额夏普", f"{metrics['excess_sharpe']:.3f}")
+    if "mean_rankic" in metrics:
+        table.add_row("平均 RankIC", f"{metrics['mean_rankic']:.4f}")
+        table.add_row("ICIR", f"{metrics['icir']:.3f}")
+    if "monthly_turnover" in metrics:
+        table.add_row("月均单边换手", f"{metrics['monthly_turnover']:.2%}")
+        table.add_row("年化换手", f"{metrics['avg_annual_turnover']:.2%}")
     console.print(table)
 
-    # Save equity curve, metrics and plot
+    # Save equity curve, metrics, trades and plot
     report_dir = settings.data_dir_path / "reports"
     report_dir.mkdir(parents=True, exist_ok=True)
     report_path = report_dir / f"equity_{start}_{end}.csv"
     equity.to_csv(report_path, index=False)
 
     suffix = "_rolling" if rolling else ""
+
+    if engine.trades:
+        trades_df = pd.DataFrame(
+            [
+                {
+                    "trade_date": t.trade_date,
+                    "symbol": t.symbol,
+                    "action": t.action,
+                    "shares": t.shares,
+                    "price": t.price,
+                    "amount": t.amount,
+                }
+                for t in engine.trades
+            ]
+        )
+        trades_path = report_dir / f"trades_{start}_{end}{suffix}.csv"
+        trades_df.to_csv(trades_path, index=False)
+        print(f"[green]交易记录已保存: {trades_path}[/green]")
+
     metrics_path = report_dir / f"metrics_{start}_{end}{suffix}.json"
     with open(metrics_path, "w", encoding="utf-8") as f:
         json.dump(metrics, f, ensure_ascii=False, indent=2, default=str)
@@ -577,15 +635,22 @@ def train(
     end: str = typer.Option("20241231", "--end", help="Training end date YYYYMMDD"),
     horizon: int = typer.Option(5, "--horizon", help="Forecast horizon in days"),
     model_name: str = typer.Option("lgb_stock_selector", "--name", help="Model artifact name"),
-    model_type: str = typer.Option("binary", "--model-type", help="Model type: binary (default) or lambdarank"),
+    model: str = typer.Option("lambdarank", "--model", help="Model type: classifier, lambdarank, xgboost"),
+    model_type: str | None = typer.Option(None, "--model-type", help="Deprecated; use --model"),
+    label_type: str = typer.Option("excess_quantile", "--label-type", help="Label scheme: binary, excess_quantile, triple_barrier"),
+    drop_middle: bool = typer.Option(False, "--drop-middle", help="Drop middle quantile for excess_quantile labels"),
+    pt_mult: float = typer.Option(2.0, "--pt-mult", help="Profit-taking ATR multiplier for triple_barrier"),
+    sl_mult: float = typer.Option(1.0, "--sl-mult", help="Stop-loss ATR multiplier for triple_barrier"),
+    max_holding: int = typer.Option(10, "--max-holding", help="Max holding days for triple_barrier"),
     template: str | None = typer.Option(
-        None, "--template", help="Strategy template name (overrides horizon/model_type)"
+        None, "--template", help="Strategy template name (overrides horizon/model)"
     ),
     include_fundamental: bool = typer.Option(
         True, "--fundamental/--no-fundamental", help="Include fundamental factors (PE/PB/ROE)"
     ),
     include_macro: bool = typer.Option(True, "--macro/--no-macro", help="Include macro factors (CPI/PMI/M2)"),
     include_sentiment: bool = typer.Option(True, "--sentiment/--no-sentiment", help="Include news sentiment factors"),
+    neutralize: bool = typer.Option(True, "--neutralize/--no-neutralize", help="Neutralize alpha/momentum/volatility factors against industry and market cap"),
     corr_threshold: float = typer.Option(
         0.95,
         "--corr-threshold",
@@ -597,11 +662,15 @@ def train(
     yes: bool = typer.Option(False, "--yes", help="Skip iFind usage confirmation"),
 ):
     """Train a LightGBM stock selection model."""
+    if model_type is not None:
+        model = model_type
+
     if template:
         tmpl = get_template(template)
         horizon = tmpl.horizon
-        model_type = tmpl.model_type
-        print(f"[cyan]应用策略模板 {template}: horizon={horizon}, model_type={model_type}[/cyan]")
+        # Templates historically use "binary"/"lambdarank"; map to new naming.
+        model = tmpl.model_type if tmpl.model_type != "binary" else "classifier"
+        print(f"[cyan]应用策略模板 {template}: horizon={horizon}, model={model}[/cyan]")
 
     ifind_used = ((include_fundamental or include_macro) and not cache_only) or include_sentiment
     if ifind_used:
@@ -620,9 +689,15 @@ def train(
         start_date=start,
         end_date=end,
         label_horizon=horizon,
+        label_type=label_type,
+        drop_middle=drop_middle,
+        pt_mult=pt_mult,
+        sl_mult=sl_mult,
+        max_holding=max_holding,
         include_fundamental=include_fundamental,
         include_macro=include_macro,
         include_sentiment=include_sentiment,
+        neutralize=neutralize,
         corr_threshold=corr_threshold,
         cache_only=cache_only,
     )
@@ -631,31 +706,31 @@ def train(
         raise typer.Exit(code=1)
 
     features = builder.feature_columns(df)
-    df_clean = df.dropna(subset=features + ["label_binary", "label_return"])
+    df_clean = df.dropna(subset=features + ["label_rank", "label_binary", "label_return"])
     X = df_clean[features]
 
-    if model_type == "lambdarank":
-        print(f"[yellow]训练 LambdaRank 模型，样本数: {len(df_clean)}, 特征数: {len(features)}[/yellow]")
-
-        # Bin future returns within each cross-section into 5 ordinal ranks.
-        def _bin_returns(x: pd.Series) -> pd.Series:
-            if len(x) < 5:
-                return pd.Series(0, index=x.index)
-            return pd.qcut(x, q=5, labels=False, duplicates="drop")
-
-        df_clean["label_rank"] = df_clean.groupby("trade_date")["label_return"].transform(_bin_returns).astype(int)
-        y = df_clean["label_rank"]
-        groups = df_clean["trade_date"]
-        model = LGBLambdaRankModel()
-        model.fit(X, y, features, groups=groups)
-    elif model_type == "binary":
-        print(f"[yellow]训练二分类模型，样本数: {len(df_clean)}, 特征数: {len(features)}[/yellow]")
-        y = df_clean["label_binary"]
-        model = LGBRankerModel()
-        model.fit(X, y, features)
-    else:
-        print(f"[red]未知模型类型: {model_type}[/red]")
+    model_factory_map = {
+        "lambdarank": LGBLambdaRankModel,
+        "classifier": LGBRankerModel,
+        "binary": LGBRankerModel,
+        "xgboost": XGBRankerModel,
+    }
+    model_cls = model_factory_map.get(model)
+    if model_cls is None:
+        print(f"[red]未知模型类型: {model}[/red]")
         raise typer.Exit(code=1)
+
+    is_ranker = getattr(model_cls(), "is_ranker", False)
+    label_col = "label_rank" if is_ranker else "label_binary"
+    y = df_clean[label_col]
+    model = model_cls()
+    fit_kwargs: dict = {}
+    if is_ranker:
+        fit_kwargs["groups"] = df_clean["trade_date"]
+        print(f"[yellow]训练 LambdaRank 模型，样本数: {len(df_clean)}, 特征数: {len(features)}[/yellow]")
+    else:
+        print(f"[yellow]训练 {'XGBoost' if 'xgb' in model_cls.__name__.lower() else 'LightGBM 二分类'} 模型，样本数: {len(df_clean)}, 特征数: {len(features)}[/yellow]")
+    model.fit(X, y, features, **fit_kwargs)
 
     registry = ModelRegistry(settings)
     model_path = registry.path(model_name)
@@ -693,7 +768,8 @@ def weekly_report(
 
         # Push to Supabase
         try:
-            import os, sys as _sys
+            import os
+            import sys as _sys
             from pathlib import Path as _Path
             if os.environ.get("SUPABASE_URL") and os.environ.get("SUPABASE_SERVICE_ROLE_KEY"):
                 _proj_root = str(_Path(__file__).resolve().parent.parent.parent)
@@ -773,7 +849,8 @@ def explain(
 
     # Push to Supabase
     try:
-        import os, sys as _sys
+        import os
+        import sys as _sys
         from pathlib import Path as _Path
         if os.environ.get("SUPABASE_URL") and os.environ.get("SUPABASE_SERVICE_ROLE_KEY"):
             _proj_root = str(_Path(__file__).resolve().parent.parent.parent)

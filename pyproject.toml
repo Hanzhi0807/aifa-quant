@@ -7,7 +7,7 @@ name = "aifa-quant"
 version = "0.6.0"
 description = "A股 AI 量化研究框架"
 readme = "README.md"
-requires-python = ">=3.10,<3.13"
+requires-python = ">=3.10,<3.14"
 license = {text = "MIT"}
 authors = [
     {name = "ivyzhi0807", email = "jiangjas@gmail.com"},
@@ -20,6 +20,7 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
     "pandas>=2.0.0",
@@ -43,6 +44,7 @@ dependencies = [
     "seaborn>=0.13.0",
     "plotly>=5.20.0",
     "akshare>=1.18.0",
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]

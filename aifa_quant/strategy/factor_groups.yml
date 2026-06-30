@@ -1,0 +1,88 @@
+momentum:
+  columns:
+    - return_5d
+    - return_20d
+    - alpha006
+    - alpha008
+    - alpha034
+    - alpha043
+    - alpha060
+    - alpha101
+    - close_to_ma_20
+    - close_to_ma_60
+  direction: 1
+  winsorize: true
+  neutralize: true
+
+value:
+  columns:
+    - pe_lyr
+    - pb
+    - pb_mrq
+  direction: -1
+  winsorize: true
+  neutralize: true
+
+quality:
+  columns:
+    - roe_ttm
+    - roe_weighted
+    - roe_deducted
+    - roe_diluted
+  direction: 1
+  winsorize: true
+  neutralize: true
+
+low_volatility:
+  columns:
+    - volatility_20d
+    - volatility_60d
+    - atr_14
+  direction: -1
+  winsorize: true
+  neutralize: true
+
+alpha:
+  columns:
+    - alpha002
+    - alpha003
+    - alpha005
+    - alpha006
+    - alpha008
+    - alpha012
+    - alpha014
+    - alpha015
+    - alpha018
+    - alpha020
+    - alpha024
+    - alpha032
+    - alpha034
+    - alpha041
+    - alpha043
+    - alpha046
+    - alpha050
+    - alpha054
+    - alpha060
+    - alpha101
+  direction: 1
+  winsorize: true
+  neutralize: true
+
+volume:
+  columns:
+    - volume_ratio_5
+    - volume_ratio_20
+    - amount_close_ratio
+  direction: 1
+  winsorize: true
+  neutralize: true
+
+return:
+  columns:
+    - return_1d
+    - return_5d
+    - return_10d
+    - return_20d
+  direction: 1
+  winsorize: true
+  neutralize: true

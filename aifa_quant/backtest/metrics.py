@@ -4,10 +4,93 @@ import numpy as np
 import pandas as pd
 
 
+def compute_rankic(
+    features: pd.DataFrame,
+    pred_col: str = "pred_score",
+    return_col: str = "label_return",
+) -> dict[str, float]:
+    """Compute mean RankIC, ICIR and related statistics.
+
+    For each trade_date, compute the Spearman correlation between the model
+    score (``pred_col``) and the forward return (``return_col``). Returns the
+    mean, standard deviation and annualized ICIR.
+    """
+    if features.empty or pred_col not in features.columns or return_col not in features.columns:
+        return {"mean_rankic": 0.0, "rankic_std": 0.0, "icir": 0.0, "rankic_win_rate": 0.0}
+
+    df = features[["trade_date", pred_col, return_col]].copy()
+    df["trade_date"] = pd.to_datetime(df["trade_date"])
+    df = df.dropna()
+
+    def _spearman(g: pd.DataFrame) -> float:
+        if len(g) < 5:
+            return np.nan
+        return g[pred_col].corr(g[return_col], method="spearman")
+
+    ic_series = df.groupby("trade_date").apply(_spearman, include_groups=False)
+    ic_series = ic_series.dropna()
+    if ic_series.empty:
+        return {"mean_rankic": 0.0, "rankic_std": 0.0, "icir": 0.0, "rankic_win_rate": 0.0}
+
+    mean_ic = float(ic_series.mean())
+    std_ic = float(ic_series.std())
+    icir = mean_ic / std_ic * np.sqrt(len(ic_series)) if std_ic != 0 else 0.0
+    win_rate = float((ic_series > 0).mean())
+    return {
+        "mean_rankic": mean_ic,
+        "rankic_std": std_ic,
+        "icir": icir,
+        "rankic_win_rate": win_rate,
+    }
+
+
+def compute_turnover(
+    trades: list,
+    equity_curve: pd.DataFrame,
+) -> dict[str, float]:
+    """Compute monthly single-side turnover from trade history.
+
+    Single-side monthly turnover is defined as total buy amount in a month
+    divided by the average portfolio NAV in that month, averaged across all
+    months with data.
+    """
+    if not trades or equity_curve.empty:
+        return {"monthly_turnover": 0.0, "avg_annual_turnover": 0.0}
+
+    trades_df = pd.DataFrame(
+        [
+            {
+                "trade_date": pd.to_datetime(t.trade_date),
+                "action": t.action,
+                "amount": float(t.amount),
+            }
+            for t in trades
+        ]
+    )
+    equity = equity_curve.copy()
+    equity["trade_date"] = pd.to_datetime(equity["trade_date"])
+    equity = equity.set_index("trade_date").sort_index()
+
+    buys = trades_df[trades_df["action"] == "BUY"].copy()
+    buys = buys.set_index("trade_date").resample("ME")["amount"].sum()
+    nav = equity["total_value"].resample("ME").mean()
+
+    common = nav.index.intersection(buys.index)
+    if common.empty:
+        return {"monthly_turnover": 0.0, "avg_annual_turnover": 0.0}
+
+    monthly = (buys.reindex(common) / nav.reindex(common)).dropna()
+    avg_monthly = float(monthly.mean())
+    annual = avg_monthly * 12
+    return {"monthly_turnover": avg_monthly, "avg_annual_turnover": annual}
+
+
 def compute_metrics(
     equity_curve: pd.DataFrame,
     benchmark_curve: pd.DataFrame | None = None,
     risk_free_rate: float = 0.0,
+    trades: list | None = None,
+    features: pd.DataFrame | None = None,
 ) -> dict[str, float]:
     """Compute standard performance metrics from an equity curve.
 
@@ -70,5 +153,10 @@ def compute_metrics(
                 else 0.0
             )
             metrics["bench_win_rate"] = (merged["excess_return"] > 0).mean()
+
+    if features is not None and not features.empty:
+        metrics.update(compute_rankic(features))
+    if trades is not None:
+        metrics.update(compute_turnover(trades, equity_curve))
 
     return metrics

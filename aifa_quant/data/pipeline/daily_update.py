@@ -8,11 +8,11 @@ from datetime import datetime, timedelta
 
 import pandas as pd
 
-logger = logging.getLogger(__name__)
-
 from ...config.settings import Settings
 from ..adapters import AkShareAdapter, StockMCPAdapter
 from ..storage import DuckDBStore
+
+logger = logging.getLogger(__name__)
 
 
 class RateLimiter:

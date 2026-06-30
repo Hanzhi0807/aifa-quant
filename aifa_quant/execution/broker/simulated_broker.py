@@ -5,11 +5,11 @@ from typing import Any
 
 import pandas as pd
 
-logger = logging.getLogger(__name__)
-
 from ...core.interfaces import BaseBroker
 from ...core.trading_config import TradingConfig
 from ...data.storage import DuckDBStore
+
+logger = logging.getLogger(__name__)
 
 
 class SimulatedBroker(BaseBroker):

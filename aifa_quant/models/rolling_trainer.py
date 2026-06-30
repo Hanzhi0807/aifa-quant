@@ -8,7 +8,7 @@ from ..config.settings import Settings
 from ..features import FeatureBuilder
 from ..features.selection import drop_highly_correlated
 from .base import BaseModel
-from .lgb_ranker import LGBRankerModel
+from .lgb_lambdarank import LGBLambdaRankModel
 
 
 class RollingTrainer:
@@ -21,14 +21,16 @@ class RollingTrainer:
         min_train_samples: int = 500,
         settings: Settings | None = None,
         label_horizon: int = 5,
+        label_type: str = "excess_quantile",
         corr_threshold: float | None = 0.95,
     ):
         self.settings = settings or Settings()
-        self.model_factory = model_factory or LGBRankerModel
+        self.model_factory = model_factory or LGBLambdaRankModel
         # train_window_days is measured in trading days, not calendar days.
         self.train_window_days = train_window_days
         self.min_train_samples = min_train_samples
         self.label_horizon = label_horizon
+        self.label_type = label_type
         self.corr_threshold = corr_threshold
 
     def predict_rolling(
@@ -81,15 +83,21 @@ class RollingTrainer:
             if not active_features:
                 continue
 
+            model = self.model_factory()
+            is_ranker = getattr(model, "is_ranker", False)
+            label_col = "label_rank" if is_ranker else "label_binary"
+
             # Drop NaNs in features/label
-            train_df = train_df.dropna(subset=active_features + ["label_binary"])
+            train_df = train_df.dropna(subset=active_features + [label_col])
             if len(train_df) < self.min_train_samples:
                 continue
 
-            model = self.model_factory()
             x_train = train_df[active_features]
-            y_train = train_df["label_binary"]
-            model.fit(x_train, y_train, active_features)
+            y_train = train_df[label_col]
+            fit_kwargs: dict = {}
+            if is_ranker:
+                fit_kwargs["groups"] = train_df["trade_date"]
+            model.fit(x_train, y_train, active_features, **fit_kwargs)
 
             # Predict for current date using the same train-window-selected features.
             pred_mask = features["trade_date"] == pred_date

@@ -8,6 +8,8 @@ import pandas as pd
 class BaseModel(ABC):
     """Abstract base class for predictive models."""
 
+    is_ranker: bool = False
+
     @abstractmethod
     def fit(
         self,
